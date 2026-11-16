@@ -14,7 +14,9 @@ read-only.
 - **Reconnect at startup** (enabled unit) and/or **Connect on first access**
   (automount, so boot never waits on the network), with optional idle disconnect.
 - SMB sign-in with a password, as a guest, or with your Kerberos ticket (domain
-  sign-in, no stored password); optional SMB 3 encryption.
+  sign-in, no stored password); optional SMB 3 encryption; optionally let every
+  user on the computer write to the drive.
+- NFS soft mounts (optional) so apps don't freeze when a server disappears.
 - SMB passwords are kept in root-only credential files, never in unit files.
 - Optional file manager sidebar entry per drive (Files/Nautilus, Nemo, Thunar,
   Caja, Dolphin).
@@ -206,8 +208,9 @@ a test build only.
 1. Bump the version in `catamount/__init__.py`, `packaging/catamount.spec`,
    `debian/changelog`, `data/com.spazcat.CataMount.metainfo.xml`, and add a
    `CHANGELOG.md` section. CI checks that they all match.
-2. Create a release with tag `vX.Y` on GitHub. The workflow attaches the RPM,
-   DEB and `SHA256SUMS`.
+2. Push a `vX.Y` tag. The workflow builds the RPM and DEB, creates the GitHub
+   Release with the changelog section as notes, and attaches the packages and
+   `SHA256SUMS`.
 
 ## License
 

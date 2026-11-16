@@ -2,7 +2,16 @@
 
 Working notes for the next session. Newest first.
 
-## 2026-11-16 — Everyday features batch (still v0.1, unreleased)
+## 2026-11-16 — v0.1 release
+
+- Added NFS soft mount option (`nfs.soft` → soft,timeo=150,retrans=3) and SMB `all_users`
+  (file_mode/dir_mode 0777).
+- Built the RPM locally with Ubuntu's rpmbuild (`--nodeps`, `_metainfodir` defined) to check
+  the spec before CI: file list, Requires and Recommends look right.
+- Ran the app from the extracted DEB layout (launcher, --list, GUI, icons, changelog): OK.
+- Tagged v0.1 (Claude pushes release tags per CLAUDE.md; the workflow creates the Release).
+
+## 2026-11-16 — Everyday features batch
 
 Sam: as many features as possible in the first build before release.
 

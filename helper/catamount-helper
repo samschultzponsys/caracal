@@ -201,6 +201,7 @@ def validate_spec(raw):
         guest = _bool(smb, "guest", False)
         kerberos = _bool(smb, "kerberos", False)
         seal = _bool(smb, "seal", False)
+        all_users = _bool(smb, "all_users", False)
         if guest and kerberos:
             raise HelperError("Choose either guest access or Kerberos, not both.")
         if not guest and not kerberos and not username:
@@ -217,6 +218,7 @@ def validate_spec(raw):
         gid = _int(smb, "gid", default_gid, 0, 2**31 - 1)
         spec["smb"] = {"version": version, "username": username, "domain": domain,
                        "guest": guest, "kerberos": kerberos, "seal": seal,
+                       "all_users": all_users,
                        "uid": uid, "gid": gid}
     else:
         nfs = raw.get("nfs") or {}
@@ -225,7 +227,7 @@ def validate_spec(raw):
         version = _str(nfs, "version")
         if version not in NFS_VERSIONS:
             raise HelperError("Unsupported NFS version.")
-        spec["nfs"] = {"version": version}
+        spec["nfs"] = {"version": version, "soft": _bool(nfs, "soft", False)}
     return spec
 
 
@@ -261,9 +263,14 @@ def mount_options(spec):
             opts.append("vers=" + smb["version"])
         if smb.get("seal"):
             opts.append("seal")
+        if smb.get("all_users"):
+            opts += ["file_mode=0777", "dir_mode=0777"]
     else:
         if spec["nfs"]["version"]:
             opts.append("vers=" + spec["nfs"]["version"])
+        if spec["nfs"].get("soft"):
+            # Give up after ~45 s instead of hanging forever when the server goes away.
+            opts += ["soft", "timeo=150", "retrans=3"]
     opts.append("ro" if spec["read_only"] else "rw")
     if spec["extra_options"]:
         opts.append(spec["extra_options"])

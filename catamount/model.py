@@ -415,7 +415,8 @@ def fstab_to_template(entry, mount_root="/mnt", taken=()):
         opts[key.strip().lower()] = value.strip()
     known = {"ro", "rw", "vers", "nfsvers", "username", "user", "domain", "dom", "workgroup",
              "guest", "sec", "seal", "credentials", "cred", "password", "pass", "uid", "gid",
-             "defaults", "_netdev", "nofail", "auto", "noauto", "user_xattr", "iocharset"}
+             "defaults", "_netdev", "nofail", "auto", "noauto", "user_xattr", "iocharset",
+             "soft", "hard", "timeo", "retrans"}
     extra = [o for o in entry.options.split(",")
              if o and o.split("=", 1)[0].lower() not in known and not o.startswith("x-systemd")]
     spec = {
@@ -439,5 +440,6 @@ def fstab_to_template(entry, mount_root="/mnt", taken=()):
         }
     else:
         version = opts.get("vers") or opts.get("nfsvers") or ("4" if entry.fstype == "nfs4" else "")
-        spec["nfs"] = {"version": version if version in ("4.2", "4.1", "4", "3") else ""}
+        spec["nfs"] = {"version": version if version in ("4.2", "4.1", "4", "3") else "",
+                       "soft": "soft" in opts}
     return spec

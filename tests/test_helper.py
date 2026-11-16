@@ -134,6 +134,14 @@ class RenderTests(unittest.TestCase):
             with self.assertRaises(helper.HelperError):
                 helper.validate_spec(smb_spec(smb=dict(bad, uid=1000)))
 
+    def test_render_soft_and_all_users(self):
+        nfs = helper.validate_spec({"id": DRIVE_ID, "name": "x", "type": "nfs", "server": "h",
+                                    "share": "/d", "mount_point": "/mnt/d",
+                                    "nfs": {"soft": True}})
+        self.assertIn("soft,timeo=150,retrans=3", helper.mount_options(nfs))
+        smb = helper.validate_spec(smb_spec(smb={"username": "s", "all_users": True, "uid": 1}))
+        self.assertIn("file_mode=0777,dir_mode=0777", helper.mount_options(smb))
+
     def test_gui_parses_rendered_units(self):
         spec = helper.validate_spec(smb_spec())
         with tempfile.TemporaryDirectory() as d:

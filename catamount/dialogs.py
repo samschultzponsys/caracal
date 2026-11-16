@@ -153,12 +153,16 @@ class DriveDialog(QDialog):
         self.smb_version = _combo(SMB_VERSIONS, smb.get("version", ""))
         self.seal = QCheckBox("Encrypt traffic (needs SMB 3)")
         self.seal.setChecked(bool(smb.get("seal")))
+        self.all_users = QCheckBox("Every user on this computer can write to it")
+        self.all_users.setToolTip("By default only you can write to the drive's files.")
+        self.all_users.setChecked(bool(smb.get("all_users")))
         sform.addRow("Sign in with:", self.auth)
         sform.addRow("User name:", self.username)
         sform.addRow("Password:", self.password)
         sform.addRow("Domain:", self.domain)
         sform.addRow("SMB version:", self.smb_version)
         sform.addRow(self.seal)
+        sform.addRow(self.all_users)
         self.smb_box.setLayout(sform)
         layout.addWidget(self.smb_box)
 
@@ -166,7 +170,12 @@ class DriveDialog(QDialog):
         self.nfs_box = QGroupBox("NFS")
         nform = _form()
         self.nfs_version = _combo(NFS_VERSIONS, spec.get("nfs", {}).get("version", ""))
+        self.nfs_soft = QCheckBox("Don't freeze apps if the server goes away (soft mount)")
+        self.nfs_soft.setToolTip("Apps get an error after about 45 seconds instead of waiting "
+                                 "forever. Good for laptops; a write in progress can be lost.")
+        self.nfs_soft.setChecked(bool(spec.get("nfs", {}).get("soft")))
         nform.addRow("NFS version:", self.nfs_version)
+        nform.addRow(self.nfs_soft)
         self.nfs_box.setLayout(nform)
         layout.addWidget(self.nfs_box)
 
@@ -386,6 +395,7 @@ class DriveDialog(QDialog):
                 "guest": mode == "guest",
                 "kerberos": mode == "kerberos",
                 "seal": self.seal.isChecked(),
+                "all_users": self.all_users.isChecked(),
                 "username": self.username.text().strip(),
                 "domain": self.domain.text().strip(),
                 "version": self.smb_version.currentData(),
@@ -395,7 +405,8 @@ class DriveDialog(QDialog):
             if mode == "password" and self.password.text():
                 password = self.password.text()
         else:
-            spec["nfs"] = {"version": self.nfs_version.currentData()}
+            spec["nfs"] = {"version": self.nfs_version.currentData(),
+                           "soft": self.nfs_soft.isChecked()}
         return spec, password
 
 

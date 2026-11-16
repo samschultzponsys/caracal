@@ -18,6 +18,7 @@ First release.
 - Connect all / Disconnect all (one password prompt), from the Drive menu, the tray, or the command line.
 - Duplicate a drive, change a saved SMB password (offered when a connect fails on a bad password), and view a drive's log.
 - Copy an /etc/fstab network mount into a CataMount drive.
+- Optional NFS soft mounts (apps don't freeze if the server goes away) and an SMB option to let every user on the computer write to the drive.
 - Notifications when a drive fails, drops or reconnects, also on desktops without a tray.
 - Show-password button in password fields; the window remembers its size and column widths.
 - Command line control: `--list`, `--connect`, `--disconnect`, `--connect-all`, `--disconnect-all`.
