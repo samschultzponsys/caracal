@@ -1,7 +1,7 @@
 Source: catamount
 Section: admin
 Priority: optional
-Maintainer: Spazcat Enterprises <noreply@spazcat.com>
+Maintainer: Spazcat Enterprises <support@spazcat.com>
 Build-Depends: debhelper-compat (= 13), make
 Standards-Version: 4.7.0
 Homepage: https://github.com/samschultzponsys/catamount

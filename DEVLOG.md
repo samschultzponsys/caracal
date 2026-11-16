@@ -23,6 +23,7 @@ Working notes for the next session. Newest first.
   validation, rendering, GUI round-trip parse, and apply/edit/move/remove against a temp dir).
 
 ### Decisions
+- Maintainer contact for packaging: support@spazcat.com (confirmed).
 - Unit = source of truth. `.mount` header: `# Managed by CataMount`, `# CataMount-Id: <uuid>`,
   `# CataMount-Spec: <json>`. `.automount` has the first two lines.
 - When automount is on, the `.automount` is enabled (WantedBy=remote-fs.target) and the
@@ -51,8 +52,6 @@ Working notes for the next session. Newest first.
   RPM/DEB + SHA256SUMS, verify the hash, add a helper `install-update` command
   (dnf/apt install of a verified file in a root-owned temp dir), and show a dot on the
   version label plus newer notes in the changelog dialog.
-- Maintainer email in `debian/control` / `debian/changelog` is a placeholder
-  (`noreply@spazcat.com`). Confirm with Sam.
 - Verify on real hosts: Fedora (python3-pyside6) and Ubuntu 24.04 (does noble ship
   `python3-pyside6.qtwidgets`? If not, 24.04 support needs another route).
 - Ideas: Kerberos (sec=krb5 + cruid) option; "Browse network" (SMB discovery via
