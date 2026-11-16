@@ -71,10 +71,16 @@ These are my defaults. Apply each one only where it fits the project type (e.g. 
 - When changing a system prompt, give the whole prompt, not just the changed lines.
 
 ## Project Notes
-- What it is:
-- Stack:
-- Host:
-- Bind storage path:
-- License override (if any):
-- DB override (if any):
+- What it is: CataMount — native Linux desktop app that works like Windows' "Map network drive" for SMB and NFS shares. Creates persistent kernel mounts as systemd .mount/.automount units (never edits /etc/fstab; read-only view of existing fstab network mounts).
+- Stack: Python 3 + PySide6 (Qt 6) GUI; stdlib-only privileged helper (/usr/libexec/catamount/catamount-helper) run via pkexec/polkit (action com.spazcat.CataMount.manage). App ID com.spazcat.CataMount. Packaged as RPM (primary) and DEB.
+- Host: N/A — desktop app installed on Fedora/Debian workstations, not a server service. Don't ask.
+- Bind storage path: N/A — no Docker. Don't ask.
+- License override (if any): None — Apache 2.0, copyright holder "Spazcat Enterprises". PySide6/Shiboken6 are LGPLv3 (fine as unmodified system libs); list in THIRD_PARTY_LICENSES.md.
+- DB override (if any): No database. Unit files are the source of truth (identified by a "# Managed by CataMount" header); app preferences in QSettings (~/.config/catamount/). SMB creds in /etc/catamount/creds/<uuid>.cred (root, 0600).
 - Other overrides:
+  - Platforms: Fedora (primary) and Debian 13+/Ubuntu 24.04+ only. NO Flatpak — the app needs root on the host (writes /etc/systemd/system, runs systemctl/mount), must install a polkit policy in /usr/share/polkit-1/actions, depends on host cifs-utils/nfs-utils, and stores root-owned credentials; a sandbox blocks all of that and Flathub would reject it.
+  - Docker and Auth sections: not applicable.
+  - Responsive layout: desktop only; main window just needs to stay usable down to ~480 px wide.
+  - Auto-update: in-app check against GitHub Releases (max once a day, cached), downloads the RPM/DEB + SHA256SUMS, checks the hash, installs through the helper with dnf/apt.
+  - Repo: public.
+  - Icon: not chosen yet — present options per the Naming and branding rule before making one.
