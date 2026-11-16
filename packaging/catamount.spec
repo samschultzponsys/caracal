@@ -20,6 +20,9 @@ Requires:       cifs-utils
 Requires:       nfs-utils
 # Resolve .local (mDNS) server names
 Recommends:     nss-mdns
+# Browse the network and test connections (optional)
+Recommends:     avahi-tools
+Recommends:     samba-client
 # GNOME has no tray without this extension (KDE and most others have one built in)
 Recommends:     (gnome-shell-extension-appindicator if gnome-shell)
 

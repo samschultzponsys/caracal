@@ -6,11 +6,19 @@ CataMount creates persistent kernel mounts as systemd `.mount` / `.automount`
 units. It never edits `/etc/fstab`, and it shows existing fstab network mounts
 read-only.
 
+- **Browse** the network for SMB/NFS servers (mDNS) and pick a share, or
+  **test the connection** before saving.
 - Paste an address in any common form: `\\server\share`, `smb://server/share`,
   `//server/share`, `server:/export`, `nfs://server/export`.
 - **Reconnect at startup** (enabled unit) and/or **Connect on first access**
   (automount, so boot never waits on the network), with optional idle disconnect.
+- SMB sign-in with a password, as a guest, or with your Kerberos ticket (domain
+  sign-in, no stored password); optional SMB 3 encryption.
 - SMB passwords are kept in root-only credential files, never in unit files.
+- Optional file manager sidebar entry per drive (Files/Nautilus, Nemo, Thunar,
+  Caja, Dolphin).
+- Export your drives to a file and import them on another computer (passwords
+  are never exported).
 - Connect, disconnect, edit, remove and open drives; status refreshes live.
 - Lives in the system tray: closing the window keeps it running, the tray menu
   connects/disconnects/opens drives, and you get a notification if a drive fails.
@@ -57,6 +65,8 @@ install if something was removed.
 | SMB / Windows shares | `cifs-utils` | `cifs-utils` | required |
 | NFS exports | `nfs-utils` | `nfs-common` | required |
 | `.local` server names (mDNS) | `nss-mdns` | `libnss-mdns` | recommended |
+| Find servers on the network | `avahi-tools` | `avahi-utils` | recommended |
+| List SMB shares, test SMB connections | `samba-client` | `smbclient` | recommended |
 | Tray icon on GNOME | `gnome-shell-extension-appindicator` | `gnome-shell-extension-appindicator` | recommended on Fedora GNOME, suggested on Debian |
 
 You also need a polkit authentication agent. Every major desktop includes one.
@@ -75,6 +85,13 @@ sudo apt install gnome-shell-extension-appindicator
 
 Without a tray, CataMount works normally and closing the window quits it.
 
+## Kerberos
+
+Choose **Sign in with: Kerberos ticket** for domain shares. The mount uses
+the ticket of the user who created the drive (`sec=krb5,cruid=<uid>`), so get a
+ticket first (`kinit`, or sign in to the domain). No password is stored. With
+automount, the drive connects whenever you have a valid ticket.
+
 ## How it works
 
 | What | Where |
@@ -85,6 +102,7 @@ Without a tray, CataMount works normally and closing the window quits it.
 | Mount units | `/etc/systemd/system/<escaped-path>.mount` and `.automount` |
 | SMB credentials | `/etc/catamount/creds/<drive-id>.cred` (root, 0600) |
 | Preferences | `~/.config/catamount/catamount.conf` |
+| Sidebar bookmarks | `~/.config/gtk-3.0/bookmarks` and, if it exists, `~/.local/share/user-places.xbel` |
 | Start at login | `~/.config/autostart/com.spazcat.CataMount.desktop` (runs `catamount --tray`) |
 
 Every unit CataMount writes starts with `# Managed by CataMount`, plus the

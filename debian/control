@@ -20,7 +20,7 @@ Depends: ${misc:Depends},
          systemd,
          cifs-utils,
          nfs-common
-Recommends: libnss-mdns
+Recommends: libnss-mdns, avahi-utils, smbclient
 Suggests: gnome-shell-extension-appindicator
 Description: Map SMB and NFS network drives as persistent systemd mounts
  CataMount works like "Map network drive" on Windows. It creates persistent

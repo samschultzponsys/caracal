@@ -2,6 +2,33 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-16 — Browse, test, Kerberos/seal, sidebar, export/import (still v0.1, unreleased)
+
+Sam: "push all releases per CLAUDE.md", but keep building features before cutting a build.
+
+### Done
+- `discovery.py` (no Qt): avahi-browse -ptr parsing (_smb._tcp, _nfs._tcp), smbclient -g -L
+  share listing, `smbclient -c ls` connection test, showmount -e. Credentials go through a
+  0600 temp auth file in XDG_RUNTIME_DIR (never argv). NT_STATUS codes become plain messages.
+  All of this is optional: features grey out with a hint when the tool is missing.
+- `browse.py`: BrowseDialog (servers on the left, shares on the right, sign-in row when an
+  anonymous listing is denied). It uses the IP if the .local name doesn't resolve
+  (no nss-mdns).
+- `background.py`: run_async(fn, callback) runs work in a thread and calls back on the UI thread.
+- Map dialog: Browse… (network), Choose… (local folder), "Sign in with" password/guest/Kerberos,
+  "Encrypt traffic" (seal), "Show in the file manager sidebar", Test connection.
+- Helper: `smb.kerberos` → `sec=krb5,cruid=<uid>[,username=]` (no creds file; strict username
+  charset because it goes into the options), `smb.seal` → `seal`, top-level `bookmark` stored
+  in the spec.
+- `bookmarks.py`: sync() on every refresh, but only diffs against the record in QSettings
+  `bookmarks`, so entries the user deletes by hand aren't re-added. GTK bookmarks file
+  always; KDE xbel only if it exists (text insert/remove by href, not an XML rewrite).
+- Export/import: File → Export (JSON, format "catamount-drives", no id/uid/gid/passwords).
+  Import skips server+share pairs that already exist, then opens the Map dialog per drive
+  ("Import drive n of N") and chains the helper calls.
+- Deps: Recommends avahi-tools + samba-client (Fedora) and avahi-utils + smbclient (Debian).
+- Tests: 35.
+
 ## 2026-11-16 — Auto-update (still v0.1, unreleased)
 
 ### Done

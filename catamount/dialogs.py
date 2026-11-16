@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
 )
 
 from catamount import APP_NAME, __version__
-from catamount import autostart, deps
+from catamount import autostart, deps, discovery
+from catamount.background import run_async
 from catamount.icons import TRAY_STYLES
 from catamount.model import format_remote, new_drive_id, parse_address, suggest_mount_point
 from catamount.theme import THEMES
@@ -37,6 +38,7 @@ DEFAULTS = {
     "tray_hint_shown": False,
     "tray_icon_style": "color",
     "auto_check_updates": True,
+    "default_bookmark": True,
 }
 
 
@@ -72,20 +74,23 @@ def _combo(items, current=""):
 class DriveDialog(QDialog):
     """Create or edit a network drive."""
 
-    def __init__(self, settings, drive=None, taken=(), parent=None):
+    def __init__(self, settings, drive=None, taken=(), parent=None, template=None, title=None):
         super().__init__(parent)
         self.settings = settings
         self.drive = drive
         self.taken = set(taken)
         self.editing = drive is not None
-        spec = dict(drive.spec) if drive else {}
-        self.drive_id = spec.get("id") or new_drive_id()
+        spec = dict(drive.spec) if drive else dict(template or {})
+        self.drive_id = (spec.get("id") if self.editing else None) or new_drive_id()
+        prefilled = bool(spec.get("server"))
+        smb0 = spec.get("smb", {})
         self._had_password = (self.editing and spec.get("type") == "smb"
-                              and not spec.get("smb", {}).get("guest"))
-        self._mp_touched = self.editing
-        self._name_touched = self.editing
+                              and not smb0.get("guest") and not smb0.get("kerberos"))
+        self._mp_touched = prefilled
+        self._name_touched = prefilled
 
-        self.setWindowTitle("Edit network drive" if self.editing else "Map network drive")
+        self.setWindowTitle(title or ("Edit network drive" if self.editing
+                                      else "Map network drive"))
         self.setMinimumWidth(420)
         layout = QVBoxLayout(self)
 
@@ -104,15 +109,23 @@ class DriveDialog(QDialog):
         self.hint.setTextFormat(Qt.PlainText)
         self.name = QLineEdit()
         self.mount_point = QLineEdit()
-        browse = QPushButton("Browse…")
+        browse = QPushButton("Choose…")
         browse.clicked.connect(self._browse)
+        net_browse = QPushButton("Browse…")
+        net_browse.setToolTip("Find servers and shares on the network")
+        net_browse.clicked.connect(self._browse_network)
+        addr_row = QWidget()
+        addr_layout = QHBoxLayout(addr_row)
+        addr_layout.setContentsMargins(0, 0, 0, 0)
+        addr_layout.addWidget(self.address, 1)
+        addr_layout.addWidget(net_browse)
         mp_row = QWidget()
         mp_layout = QHBoxLayout(mp_row)
         mp_layout.setContentsMargins(0, 0, 0, 0)
         mp_layout.addWidget(self.mount_point, 1)
         mp_layout.addWidget(browse)
 
-        form.addRow("Folder:", self.address)
+        form.addRow("Folder:", addr_row)
         form.addRow("", self.hint)
         form.addRow("Protocol:", self.kind)
         form.addRow("Name:", self.name)
@@ -123,8 +136,11 @@ class DriveDialog(QDialog):
         smb = spec.get("smb", {})
         self.smb_box = QGroupBox("Sign in")
         sform = _form()
-        self.guest = QCheckBox("Connect as guest (no password)")
-        self.guest.setChecked(bool(smb.get("guest")))
+        self.auth = _combo((("password", "User name and password"),
+                            ("guest", "Guest (no password)"),
+                            ("kerberos", "Kerberos ticket (domain sign-in)")),
+                           "guest" if smb.get("guest") else
+                           "kerberos" if smb.get("kerberos") else "password")
         self.username = QLineEdit(smb.get("username", ""))
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.Password)
@@ -133,11 +149,14 @@ class DriveDialog(QDialog):
         self.domain = QLineEdit(smb.get("domain", ""))
         self.domain.setPlaceholderText("optional, e.g. WORKGROUP")
         self.smb_version = _combo(SMB_VERSIONS, smb.get("version", ""))
-        sform.addRow(self.guest)
+        self.seal = QCheckBox("Encrypt traffic (needs SMB 3)")
+        self.seal.setChecked(bool(smb.get("seal")))
+        sform.addRow("Sign in with:", self.auth)
         sform.addRow("User name:", self.username)
         sform.addRow("Password:", self.password)
         sform.addRow("Domain:", self.domain)
         sform.addRow("SMB version:", self.smb_version)
+        sform.addRow(self.seal)
         self.smb_box.setLayout(sform)
         layout.addWidget(self.smb_box)
 
@@ -168,24 +187,30 @@ class DriveDialog(QDialog):
                            else setting(settings, "default_idle_minutes"))
         self.read_only = QCheckBox("Read-only")
         self.read_only.setChecked(bool(spec.get("read_only")))
+        self.bookmark = QCheckBox("Show in the file manager sidebar")
+        self.bookmark.setChecked(spec.get("bookmark", setting(settings, "default_bookmark")))
         self.extra = QLineEdit(spec.get("extra_options", ""))
         self.extra.setPlaceholderText("advanced, comma-separated mount options")
         oform.addRow(self.start_at_boot)
         oform.addRow(self.automount)
         oform.addRow("Disconnect when idle:", self.idle)
         oform.addRow(self.read_only)
+        oform.addRow(self.bookmark)
         oform.addRow("Extra options:", self.extra)
         opt_box.setLayout(oform)
         layout.addWidget(opt_box)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Save" if self.editing else "Connect")
+        self.test_btn = buttons.addButton("Test connection", QDialogButtonBox.ActionRole)
+        self.test_btn.clicked.connect(self._test)
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self.ok_button = buttons.button(QDialogButtonBox.Ok)
+        self.tools = discovery.available()
 
-        if self.editing:
+        if prefilled:
             self.address.setText(format_remote(spec.get("type"), spec.get("server", ""),
                                                spec.get("share", "")))
             self.name.setText(spec.get("name", ""))
@@ -196,7 +221,7 @@ class DriveDialog(QDialog):
         self.kind.currentIndexChanged.connect(self._address_changed)
         self.mount_point.textEdited.connect(lambda _t: setattr(self, "_mp_touched", True))
         self.name.textEdited.connect(lambda _t: setattr(self, "_name_touched", True))
-        self.guest.toggled.connect(self._update_visibility)
+        self.auth.currentIndexChanged.connect(self._update_visibility)
         self.automount.toggled.connect(self._update_visibility)
         self._address_changed()
         self._update_visibility()
@@ -238,9 +263,15 @@ class DriveDialog(QDialog):
         is_smb = self.kind.currentData() == "smb"
         self.smb_box.setVisible(is_smb)
         self.nfs_box.setVisible(not is_smb)
-        guest = self.guest.isChecked()
-        for w in (self.username, self.password, self.domain):
-            w.setEnabled(not guest)
+        mode = self.auth.currentData()
+        self.username.setEnabled(mode != "guest")
+        self.password.setEnabled(mode == "password")
+        self.domain.setEnabled(mode == "password")
+        tool = "smbclient" if is_smb else "showmount"
+        self.test_btn.setEnabled(self.tools.get(tool, False))
+        self.test_btn.setToolTip("" if self.tools.get(tool) else
+                                 "Install %s to test connections."
+                                 % ("samba-client / smbclient" if is_smb else "nfs-utils"))
         self.idle.setEnabled(self.automount.isChecked())
         self.adjustSize()
 
@@ -273,7 +304,8 @@ class DriveDialog(QDialog):
         if mp.rstrip("/") in self.taken:
             self._error("Another drive already uses %s." % mp, self.mount_point)
             return
-        if addr.kind == "smb" and not self.guest.isChecked():
+        mode = self.auth.currentData()
+        if addr.kind == "smb" and mode == "password":
             if not self.username.text().strip():
                 self._error("Enter a user name, or choose guest access.", self.username)
                 return
@@ -284,6 +316,49 @@ class DriveDialog(QDialog):
                 self._error("The password cannot contain line breaks.", self.password)
                 return
         self.accept()
+
+    def _browse_network(self):
+        from catamount.browse import BrowseDialog
+        dlg = BrowseDialog(self.username.text().strip(), self.password.text(),
+                           self.domain.text().strip(), self)
+        if not dlg.exec() or not dlg.result_share():
+            return
+        kind, server, share = dlg.result_share()
+        self.kind.setCurrentIndex(self.kind.findData(kind))
+        self.address.setText(format_remote(kind, server, share))
+        user, pw, dom = dlg.credentials()
+        if kind == "smb" and user and self.auth.currentData() == "password":
+            self.username.setText(user)
+            if pw:
+                self.password.setText(pw)
+            if dom:
+                self.domain.setText(dom)
+
+    def _test(self):
+        addr = self._parsed()
+        if not addr.valid:
+            self._error(" ".join(addr.errors) or "Enter the folder to connect to.", self.address)
+            return
+        mode = self.auth.currentData()
+        if addr.kind == "smb" and mode == "password" and not self.password.text():
+            self._error("Enter the password to test the connection.", self.password)
+            return
+        self.test_btn.setEnabled(False)
+        self.test_btn.setText("Testing…")
+        if addr.kind == "smb":
+            user, pw, dom = self.username.text().strip(), self.password.text(), \
+                self.domain.text().strip()
+            fn = lambda: discovery.test_smb(addr.server, addr.share, user, pw, dom,  # noqa: E731
+                                            kerberos=mode == "kerberos", guest=mode == "guest")
+        else:
+            fn = lambda: discovery.test_nfs(addr.server, addr.share)  # noqa: E731
+        run_async(self, fn, self._tested)
+
+    def _tested(self, result, exc):
+        self.test_btn.setText("Test connection")
+        self._update_visibility()
+        ok, msg = result if result else (False, str(exc))
+        (QMessageBox.information if ok else QMessageBox.warning)(self, "Test connection", msg)
 
     def request(self):
         """Return (spec, password-or-None) for the helper's apply command."""
@@ -299,19 +374,23 @@ class DriveDialog(QDialog):
             "idle_timeout": self.idle.value() * 60 if self.automount.isChecked() else 0,
             "start_at_boot": self.start_at_boot.isChecked(),
             "read_only": self.read_only.isChecked(),
+            "bookmark": self.bookmark.isChecked(),
             "extra_options": self.extra.text().strip(),
         }
         password = None
         if addr.kind == "smb":
+            mode = self.auth.currentData()
             spec["smb"] = {
-                "guest": self.guest.isChecked(),
+                "guest": mode == "guest",
+                "kerberos": mode == "kerberos",
+                "seal": self.seal.isChecked(),
                 "username": self.username.text().strip(),
                 "domain": self.domain.text().strip(),
                 "version": self.smb_version.currentData(),
                 "uid": os.getuid(),
                 "gid": os.getgid(),
             }
-            if not self.guest.isChecked() and self.password.text():
+            if mode == "password" and self.password.text():
                 password = self.password.text()
         else:
             spec["nfs"] = {"version": self.nfs_version.currentData()}

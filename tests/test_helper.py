@@ -123,6 +123,17 @@ class RenderTests(unittest.TestCase):
         self.assertIn(",ro", mount)
         self.assertIn("WantedBy=remote-fs.target", mount)
 
+    def test_render_kerberos_seal(self):
+        spec = helper.validate_spec(smb_spec(smb={"username": "sam@CORP.EXAMPLE",
+                                                  "kerberos": True, "seal": True, "uid": 1000}))
+        mount = helper.render_units(spec)["mnt-media.mount"]
+        self.assertIn("sec=krb5,cruid=1000,username=sam@CORP.EXAMPLE", mount)
+        self.assertIn(",seal", mount)
+        self.assertNotIn("credentials=", mount)
+        for bad in ({"guest": True, "kerberos": True}, {"kerberos": True, "username": "a,b"}):
+            with self.assertRaises(helper.HelperError):
+                helper.validate_spec(smb_spec(smb=dict(bad, uid=1000)))
+
     def test_gui_parses_rendered_units(self):
         spec = helper.validate_spec(smb_spec())
         with tempfile.TemporaryDirectory() as d:

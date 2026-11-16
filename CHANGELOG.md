@@ -10,6 +10,10 @@ First release.
 - Paste addresses in any common form: `\\server\share`, `smb://server/share`, `server:/export`, `nfs://server/export`.
 - Drives are persistent systemd mounts: reconnect at startup, or connect on first access (automount) with optional idle disconnect.
 - SMB passwords are stored in root-only credential files, never in the unit files.
+- Browse the network for SMB and NFS servers and their shares, and test a connection before saving.
+- SMB sign-in with a password, as a guest, or with a Kerberos ticket; optional SMB 3 encryption.
+- Optional file manager sidebar entry for each drive (Files, Nemo, Thunar, Caja, Dolphin).
+- Export drives to a file and import them on another computer (passwords are never exported).
 - Connect, disconnect, edit, remove and open drives from the main window; status refreshes automatically.
 - Read-only view of existing network mounts in `/etc/fstab` (CataMount never edits it).
 - System tray: close to tray, tray menu to connect/disconnect/open drives, notifications when a drive fails or drops, optional start at login in the tray, and a choice of color, white or dark tray icon.

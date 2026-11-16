@@ -175,6 +175,7 @@ def validate_spec(raw):
     spec["idle_timeout"] = _int(raw, "idle_timeout", 0, 0, 7 * 24 * 3600)
     spec["start_at_boot"] = _bool(raw, "start_at_boot", True)
     spec["read_only"] = _bool(raw, "read_only", False)
+    spec["bookmark"] = _bool(raw, "bookmark", False)  # per-user sidebar entry, GUI-managed
 
     extra = _str(raw, "extra_options").strip().strip(",")
     if not EXTRA_OPTS_RE.match(extra):
@@ -198,8 +199,15 @@ def validate_spec(raw):
             if len(value) > 256 or not CRED_FIELD_RE.match(value):
                 raise HelperError("%s is not valid." % label)
         guest = _bool(smb, "guest", False)
-        if not guest and not username:
+        kerberos = _bool(smb, "kerberos", False)
+        seal = _bool(smb, "seal", False)
+        if guest and kerberos:
+            raise HelperError("Choose either guest access or Kerberos, not both.")
+        if not guest and not kerberos and not username:
             raise HelperError("Enter a user name, or choose guest access.")
+        if kerberos and username and not re.match(r"^[A-Za-z0-9._@$-]+$", username):
+            raise HelperError("With Kerberos the user name may only contain letters, digits "
+                              "and . _ @ $ -")
         default_uid = int(os.environ.get("PKEXEC_UID", "0") or 0)
         uid = _int(smb, "uid", default_uid, 0, 2**31 - 1)
         try:
@@ -208,7 +216,8 @@ def validate_spec(raw):
             default_gid = uid
         gid = _int(smb, "gid", default_gid, 0, 2**31 - 1)
         spec["smb"] = {"version": version, "username": username, "domain": domain,
-                       "guest": guest, "uid": uid, "gid": gid}
+                       "guest": guest, "kerberos": kerberos, "seal": seal,
+                       "uid": uid, "gid": gid}
     else:
         nfs = raw.get("nfs") or {}
         if not isinstance(nfs, dict):
@@ -240,11 +249,18 @@ def mount_options(spec):
         smb = spec["smb"]
         if smb["guest"]:
             opts.append("guest")
+        elif smb.get("kerberos"):
+            # Uses the signed-in user's Kerberos ticket (via cifs.upcall), no stored password.
+            opts += ["sec=krb5", "cruid=%d" % smb["uid"]]
+            if smb["username"]:
+                opts.append("username=" + smb["username"])
         else:
             opts.append("credentials=" + cred_path(spec["id"]))
         opts += ["uid=%d" % smb["uid"], "gid=%d" % smb["gid"], "iocharset=utf8"]
         if smb["version"]:
             opts.append("vers=" + smb["version"])
+        if smb.get("seal"):
+            opts.append("seal")
     else:
         if spec["nfs"]["version"]:
             opts.append("vers=" + spec["nfs"]["version"])
@@ -525,7 +541,7 @@ def cmd_apply(req):
 
     # Credentials.
     cpath = cred_path(drive_id)
-    if spec["type"] == "smb" and not spec["smb"]["guest"]:
+    if spec["type"] == "smb" and not spec["smb"]["guest"] and not spec["smb"]["kerberos"]:
         existing = read_creds(cpath)
         if password is None:
             if "password" not in existing:

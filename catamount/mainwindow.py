@@ -2,19 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """Main window: list of managed drives plus a read-only fstab view."""
 
+import json
 import os
 import sys
 
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QHeaderView, QLabel, QMainWindow, QMenu,
+    QAbstractItemView, QApplication, QFileDialog, QHeaderView, QLabel, QMainWindow, QMenu,
     QMessageBox, QPushButton, QStackedWidget, QStyle, QSystemTrayIcon, QTabWidget,
     QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from catamount import APP_NAME, __version__
-from catamount import deps
+from catamount import bookmarks, deps
 from catamount.dialogs import ChangelogDialog, DriveDialog, PreferencesDialog, setting
 from catamount.helper_client import HelperClient
 from catamount.icons import tray_icon
@@ -39,6 +40,7 @@ class MainWindow(QMainWindow):
         self._prev_states = None
         self._quitting = False
         self._after_helper = None
+        self._import_queue = []
         self.tray = None
         self.updates = UpdateClient(self)
         self.updates.checked.connect(self._update_checked)
@@ -229,6 +231,10 @@ class MainWindow(QMainWindow):
                                  "&Preferences…", self)
         self.act_prefs.setShortcut(QKeySequence.Preferences)
         self.act_prefs.triggered.connect(self.preferences)
+        self.act_export = QAction("&Export drives…", self)
+        self.act_export.triggered.connect(self.export_drives)
+        self.act_import = QAction("&Import drives…", self)
+        self.act_import.triggered.connect(self.import_drives)
         self.act_quit = QAction("&Quit", self)
         self.act_quit.setShortcut(QKeySequence.Quit)
         self.act_quit.triggered.connect(self.quit)
@@ -245,6 +251,9 @@ class MainWindow(QMainWindow):
         mb = self.menuBar()
         m = mb.addMenu("&File")
         m.addAction(self.act_add)
+        m.addSeparator()
+        m.addAction(self.act_import)
+        m.addAction(self.act_export)
         m.addSeparator()
         m.addAction(self.act_prefs)
         m.addSeparator()
@@ -353,6 +362,9 @@ class MainWindow(QMainWindow):
         current_id = current.id if current else None
         self.drives = load_drives()
         refresh_states(self.drives)
+        err = bookmarks.sync(self.drives, self.settings)
+        if err:
+            self.statusBar().showMessage(err, 8000)
 
         self.tree.setUpdatesEnabled(False)
         self.tree.clear()
@@ -408,6 +420,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(label + " — done.", 5000)
             after(reply)
             self.refresh()
+            if self._import_queue:
+                QTimer.singleShot(0, self._next_import)
             return
         if ok:
             self.statusBar().showMessage(label + " — done.", 5000)
@@ -422,6 +436,8 @@ class MainWindow(QMainWindow):
                 box.setDetailedText(rest)
             box.exec()
         self.refresh()
+        if self._import_queue:
+            QTimer.singleShot(0, self._next_import)
 
     def _taken(self):
         return [d.mount_point for d in self.drives]
@@ -443,6 +459,75 @@ class MainWindow(QMainWindow):
             self._run("apply", {"spec": spec, "password": password,
                                 "connect": d.state in ("connected", "ready", "connecting")},
                       "Saving %s" % spec["name"])
+
+    # -- export / import ----------------------------------------------------
+
+    EXPORT_FORMAT = "catamount-drives"
+
+    def export_drives(self):
+        if not self.drives:
+            QMessageBox.information(self, APP_NAME, "There are no drives to export.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export drives",
+                                              os.path.expanduser("~/catamount-drives.json"),
+                                              "CataMount drives (*.json)")
+        if not path:
+            return
+        drives = []
+        for d in self.drives:
+            spec = {k: v for k, v in d.spec.items() if k not in ("id", "spec_version")}
+            if isinstance(spec.get("smb"), dict):
+                spec["smb"] = {k: v for k, v in spec["smb"].items() if k not in ("uid", "gid")}
+            drives.append(spec)
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"format": self.EXPORT_FORMAT, "version": 1, "drives": drives},
+                          fh, indent=2)
+        except OSError as exc:
+            QMessageBox.warning(self, APP_NAME, "Could not save: %s" % exc)
+            return
+        self.statusBar().showMessage("Exported %d drives (passwords are never exported)."
+                                     % len(drives), 6000)
+
+    def import_drives(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Import drives", os.path.expanduser("~"),
+                                              "CataMount drives (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if data.get("format") != self.EXPORT_FORMAT or not isinstance(data.get("drives"), list):
+                raise ValueError("not a CataMount export")
+        except (OSError, ValueError, AttributeError) as exc:
+            QMessageBox.warning(self, APP_NAME, "Could not read %s: %s" % (path, exc))
+            return
+        existing = {(d.spec.get("server"), d.spec.get("share")) for d in self.drives}
+        queue = [s for s in data["drives"] if isinstance(s, dict)
+                 and (s.get("server"), s.get("share")) not in existing]
+        skipped = len(data["drives"]) - len(queue)
+        if not queue:
+            QMessageBox.information(self, APP_NAME, "All drives in that file already exist here.")
+            return
+        if skipped:
+            self.statusBar().showMessage("Skipping %d drive(s) that already exist." % skipped, 6000)
+        self._import_total = len(queue)
+        self._import_queue = queue
+        self._next_import()
+
+    def _next_import(self):
+        if not self._import_queue or self.helper.busy:
+            return
+        spec = self._import_queue.pop(0)
+        n = self._import_total - len(self._import_queue)
+        dlg = DriveDialog(self.settings, taken=self._taken(), parent=self, template=spec,
+                          title="Import drive %d of %d" % (n, self._import_total))
+        if dlg.exec():
+            new_spec, password = dlg.request()
+            self._run("apply", {"spec": new_spec, "password": password, "connect": True},
+                      "Connecting %s" % new_spec["name"])
+        elif self._import_queue:
+            QTimer.singleShot(0, self._next_import)
 
     def remove_drive(self):
         d = self.selected()
