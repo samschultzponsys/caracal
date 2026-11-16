@@ -87,14 +87,85 @@ def parse_avahi(text):
     return sorted(servers.values(), key=lambda s: s.name.lower())
 
 
-def discover_servers(timeout=8):
-    if not shutil.which("avahi-browse"):
+WSD_ADDR = ("239.255.255.250", 3702)
+WSD_PROBE = """<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" \
+xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing" \
+xmlns:wsd="http://schemas.xmlsoap.org/ws/2005/04/discovery" \
+xmlns:wsdp="http://schemas.xmlsoap.org/ws/2006/02/devprof">
+<soap:Header><wsa:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</wsa:To>\
+<wsa:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</wsa:Action>\
+<wsa:MessageID>urn:uuid:{uuid}</wsa:MessageID></soap:Header>
+<soap:Body><wsd:Probe><wsd:Types>wsdp:Device</wsd:Types></wsd:Probe></soap:Body>
+</soap:Envelope>"""
+
+
+def parse_wsd_match(xml_text):
+    """Return the IP of a WS-Discovery ProbeMatch from a computer (Windows, wsdd), or None."""
+    types = re.search(r"<[\w:]*Types>([^<]*)</[\w:]*Types>", xml_text)
+    if not types or "Computer" not in types.group(1):
+        return None  # printers, scanners, TVs...
+    xaddrs = re.search(r"<[\w:]*XAddrs>([^<]*)</[\w:]*XAddrs>", xml_text)
+    if not xaddrs:
+        return None
+    for url in xaddrs.group(1).split():
+        m = re.match(r"^https?://(\[[^\]]+\]|[^/:]+)", url)
+        if m and not m.group(1).startswith("["):
+            return m.group(1)
+    return None
+
+
+def discover_wsd(timeout=3.0):
+    """Find Windows computers (and Samba hosts running wsdd) via WS-Discovery."""
+    import socket
+    import time
+    import uuid
+    found = {}
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        sock.settimeout(0.5)
+        sock.sendto(WSD_PROBE.format(uuid=uuid.uuid4()).encode(), WSD_ADDR)
+    except OSError:
         return []
-    out = ""
-    for stype in ("_smb._tcp", "_nfs._tcp"):
-        _code, stdout, _err = _run(["avahi-browse", "-ptr", stype], timeout=timeout)
-        out += stdout
-    return parse_avahi(out)
+    end = time.monotonic() + timeout
+    try:
+        while time.monotonic() < end:
+            try:
+                data, (src, _port) = sock.recvfrom(65535)
+            except socket.timeout:
+                continue
+            ip = parse_wsd_match(data.decode("utf-8", "replace")) or None
+            if ip and ip not in found:
+                found[ip] = src
+    finally:
+        sock.close()
+    servers = []
+    for ip in found:
+        try:
+            name = socket.gethostbyaddr(ip)[0]
+        except OSError:
+            name = ip
+        short = name.split(".")[0] if name != ip else ip
+        servers.append(Server(name=short.upper() if name != ip else ip,
+                              host=name if name != ip else ip, address=ip, kinds={"smb"}))
+    return servers
+
+
+def discover_servers(timeout=8):
+    """mDNS (avahi) plus WS-Discovery, merged by address."""
+    servers = []
+    if shutil.which("avahi-browse"):
+        out = ""
+        for stype in ("_smb._tcp", "_nfs._tcp"):
+            _code, stdout, _err = _run(["avahi-browse", "-ptr", stype], timeout=timeout)
+            out += stdout
+        servers = parse_avahi(out)
+    known = {s.address for s in servers} | {s.host for s in servers}
+    for srv in discover_wsd():
+        if srv.address not in known and srv.host not in known:
+            servers.append(srv)
+    return sorted(servers, key=lambda s: s.name.lower())
 
 
 # --------------------------------------------------------------------------

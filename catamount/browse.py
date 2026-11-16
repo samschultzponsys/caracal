@@ -103,7 +103,7 @@ class BrowseDialog(QDialog):
 
         missing = []
         if not self.tools["avahi"]:
-            missing.append("avahi-browse (automatic server discovery)")
+            missing.append("avahi-browse (finding Linux/NAS servers; Windows PCs are still found)")
         if not self.tools["smbclient"]:
             missing.append("smbclient (listing SMB shares)")
         if missing:
@@ -114,8 +114,6 @@ class BrowseDialog(QDialog):
     # -- discovery ----------------------------------------------------------
 
     def discover(self):
-        if not self.tools["avahi"]:
-            return
         self.refresh_btn.setEnabled(False)
         self.servers.clear()
         placeholder = QListWidgetItem("Searching the network…")

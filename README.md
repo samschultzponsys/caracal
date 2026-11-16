@@ -6,7 +6,8 @@ CataMount creates persistent kernel mounts as systemd `.mount` / `.automount`
 units. It never edits `/etc/fstab`, and it shows existing fstab network mounts
 read-only.
 
-- **Browse** the network for SMB/NFS servers (mDNS) and pick a share, or
+- **Browse** the network for SMB/NFS servers (mDNS for Linux/NAS boxes,
+  WS-Discovery for Windows PCs) and pick a share, or
   **test the connection** before saving.
 - Paste an address in any common form: `\\server\share`, `smb://server/share`,
   `//server/share`, `server:/export`, `nfs://server/export`.

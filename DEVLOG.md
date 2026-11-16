@@ -27,7 +27,12 @@ Sam: "push all releases per CLAUDE.md", but keep building features before cuttin
   Import skips server+share pairs that already exist, then opens the Map dialog per drive
   ("Import drive n of N") and chains the helper calls.
 - Deps: Recommends avahi-tools + samba-client (Fedora) and avahi-utils + smbclient (Debian).
-- Tests: 35.
+- WS-Discovery (`discover_wsd`, stdlib UDP multicast probe to 239.255.255.250:3702) finds
+  Windows 10/11 PCs and Samba hosts running wsdd, which don't use mDNS. It keeps only
+  ProbeMatches whose Types contain "Computer" (drops printers etc.), names them by reverse
+  DNS or else shows the IP, and merges them with the avahi results by address.
+  Not yet verified against a real Windows PC.
+- Tests: 36.
 
 ## 2026-11-16 — Auto-update (still v0.1, unreleased)
 

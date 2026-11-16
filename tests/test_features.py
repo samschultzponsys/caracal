@@ -24,6 +24,15 @@ class DiscoveryTests(unittest.TestCase):
                          [("NAS", "nas.local", "192.168.1.5", ["nfs", "smb"]),
                           ("Office PC", "office-pc.local", "192.168.1.9", ["smb"])])
 
+    def test_wsd(self):
+        pc = ('<s:Envelope><s:Body><wsd:ProbeMatches><wsd:ProbeMatch><wsd:Types>wsdp:Device '
+              'pub:Computer</wsd:Types><wsd:XAddrs>http://192.168.1.9:5357/abc '
+              'http://[fe80::1]:5357/abc</wsd:XAddrs></wsd:ProbeMatch></wsd:ProbeMatches>'
+              '</s:Body></s:Envelope>')
+        printer = pc.replace("pub:Computer", "wprt:PrintDeviceType")
+        self.assertEqual(discovery.parse_wsd_match(pc), "192.168.1.9")
+        self.assertIsNone(discovery.parse_wsd_match(printer))
+
     def test_smb_shares(self):
         out = "Disk|media|Movies\nDisk|IPC$|\nIPC|IPC$|IPC Service\nPrinter|hp|\nDisk|backup|\n"
         self.assertEqual(discovery.parse_smb_shares(out), [("backup", ""), ("media", "Movies")])

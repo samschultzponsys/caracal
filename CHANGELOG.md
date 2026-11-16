@@ -10,7 +10,7 @@ First release.
 - Paste addresses in any common form: `\\server\share`, `smb://server/share`, `server:/export`, `nfs://server/export`.
 - Drives are persistent systemd mounts: reconnect at startup, or connect on first access (automount) with optional idle disconnect.
 - SMB passwords are stored in root-only credential files, never in the unit files.
-- Browse the network for SMB and NFS servers and their shares, and test a connection before saving.
+- Browse the network for SMB and NFS servers (including Windows PCs) and their shares, and test a connection before saving.
 - SMB sign-in with a password, as a guest, or with a Kerberos ticket; optional SMB 3 encryption.
 - Optional file manager sidebar entry for each drive (Files, Nemo, Thunar, Caja, Dolphin).
 - Export drives to a file and import them on another computer (passwords are never exported).
