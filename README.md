@@ -12,6 +12,9 @@ read-only.
   (automount, so boot never waits on the network), with optional idle disconnect.
 - SMB passwords are kept in root-only credential files, never in unit files.
 - Connect, disconnect, edit, remove and open drives; status refreshes live.
+- Lives in the system tray: closing the window keeps it running, the tray menu
+  connects/disconnects/opens drives, and you get a notification if a drive fails.
+  Optional start at login (straight into the tray).
 - Light, dark or follow-system theme.
 
 ## Install
@@ -25,15 +28,50 @@ Fedora:
 sudo dnf install ./catamount-*.noarch.rpm
 ```
 
-Debian 13+ / Ubuntu 24.04+:
+Debian 13+ / Ubuntu 26.04+:
 
 ```bash
 sudo apt install ./catamount_*_all.deb
 ```
 
+Ubuntu 24.04 and 25.x are not supported because they don't package PySide6.
 Only Fedora and Debian/Ubuntu are supported. There is no Flatpak: CataMount
 needs root access to the host to write systemd units, run `mount`, and install
 a polkit policy, and a sandbox blocks all of that.
+
+## Dependencies
+
+The package manager installs everything below automatically when you install
+the RPM or DEB. CataMount also checks at startup and tells you exactly what to
+install if something was removed.
+
+| Needed for | Fedora | Debian / Ubuntu | Kind |
+|---|---|---|---|
+| Python runtime | `python3` | `python3` | required |
+| GUI toolkit (Qt 6 via PySide6) | `python3-pyside6` | `python3-pyside6.qtcore`, `.qtgui`, `.qtwidgets`, `.qtnetwork` | required |
+| SVG icons | `qt6-qtsvg` | `qt6-svg-plugins` | required |
+| Admin prompt for changes | `polkit` (pkexec) | `pkexec` | required |
+| Mount units | `systemd` | `systemd` | required |
+| SMB / Windows shares | `cifs-utils` | `cifs-utils` | required |
+| NFS exports | `nfs-utils` | `nfs-common` | required |
+| `.local` server names (mDNS) | `nss-mdns` | `libnss-mdns` | recommended |
+| Tray icon on GNOME | `gnome-shell-extension-appindicator` | `gnome-shell-extension-appindicator` | recommended on Fedora GNOME, suggested on Debian |
+
+You also need a polkit authentication agent. Every major desktop includes one.
+
+### System tray on GNOME
+
+KDE, Cinnamon, XFCE, Budgie and Ubuntu's GNOME have a tray built in. Plain
+GNOME (Fedora Workstation, Debian GNOME) needs the AppIndicator extension. On
+Fedora it's installed with CataMount but has to be turned on once. Use
+**Preferences → Turn on the tray extension**, or the Extensions app, then log
+out and back in. On Debian:
+
+```bash
+sudo apt install gnome-shell-extension-appindicator
+```
+
+Without a tray, CataMount works normally and closing the window quits it.
 
 ## How it works
 
@@ -45,6 +83,7 @@ a polkit policy, and a sandbox blocks all of that.
 | Mount units | `/etc/systemd/system/<escaped-path>.mount` and `.automount` |
 | SMB credentials | `/etc/catamount/creds/<drive-id>.cred` (root, 0600) |
 | Preferences | `~/.config/catamount/catamount.conf` |
+| Start at login | `~/.config/autostart/com.spazcat.CataMount.desktop` (runs `catamount --tray`) |
 
 Every unit CataMount writes starts with `# Managed by CataMount`, plus the
 drive's id and settings as a JSON comment. The unit files are the only record:
@@ -67,6 +106,11 @@ the app first if you want them gone.
 - Status refresh interval
 - Defaults for new drives: connect on first access, reconnect at startup, idle disconnect
 - Ask before removing a drive
+- System tray: show tray icon, close to tray, failure/disconnect notifications,
+  start in the tray at login, tray icon style (color, white or dark)
+
+Only one copy runs at a time. Launching CataMount again brings up the existing
+window.
 
 ## Troubleshooting
 

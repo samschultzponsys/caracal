@@ -78,9 +78,10 @@ These are my defaults. Apply each one only where it fits the project type (e.g. 
 - License override (if any): None — Apache 2.0, copyright holder "Spazcat Enterprises". PySide6/Shiboken6 are LGPLv3 (fine as unmodified system libs); list in THIRD_PARTY_LICENSES.md.
 - DB override (if any): No database. Unit files are the source of truth (identified by a "# Managed by CataMount" header); app preferences in QSettings (~/.config/catamount/). SMB creds in /etc/catamount/creds/<uuid>.cred (root, 0600).
 - Other overrides:
-  - Platforms: Fedora (primary) and Debian 13+/Ubuntu 24.04+ only. NO Flatpak — the app needs root on the host (writes /etc/systemd/system, runs systemctl/mount), must install a polkit policy in /usr/share/polkit-1/actions, depends on host cifs-utils/nfs-utils, and stores root-owned credentials; a sandbox blocks all of that and Flathub would reject it.
+  - Platforms: Fedora (primary) and Debian 13+/Ubuntu 26.04+ only (Ubuntu before 26.04 doesn't package PySide6). NO Flatpak — the app needs root on the host (writes /etc/systemd/system, runs systemctl/mount), must install a polkit policy in /usr/share/polkit-1/actions, depends on host cifs-utils/nfs-utils, and stores root-owned credentials; a sandbox blocks all of that and Flathub would reject it.
   - Docker and Auth sections: not applicable.
   - Responsive layout: desktop only; main window just needs to stay usable down to ~480 px wide.
   - Auto-update: in-app check against GitHub Releases (max once a day, cached), downloads the RPM/DEB + SHA256SUMS, checks the hash, installs through the helper with dnf/apt.
   - Repo: public.
-  - Icon: not chosen yet — present options per the Naming and branding rule before making one.
+  - Icon: chosen — cat-eared network folder (wide ears at the top corners, dark folder, glowing 3-node network, green tile). Sources in data/icons/. Tray has color/white/dark variants.
+  - Tray: app runs in the system tray (close to tray, start at login in tray, notifications). Single instance.

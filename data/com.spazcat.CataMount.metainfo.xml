@@ -19,6 +19,7 @@
       It never edits /etc/fstab and shows existing fstab network mounts read-only.
     </p>
   </description>
+  <icon type="stock">com.spazcat.CataMount</icon>
   <launchable type="desktop-id">com.spazcat.CataMount.desktop</launchable>
   <url type="homepage">https://github.com/samschultzponsys/catamount</url>
   <url type="bugtracker">https://github.com/samschultzponsys/catamount/issues</url>

@@ -463,8 +463,22 @@ def primary_unit(names):
     return autos[0] if autos else [n for n in names if n.endswith(".mount")][0]
 
 
+MOUNT_HELPERS = {"smb": ("mount.cifs", "cifs-utils"), "nfs": ("mount.nfs", "nfs-utils / nfs-common")}
+
+
+def require_mount_helper(kind):
+    tool, pkg = MOUNT_HELPERS[kind]
+    for d in ("/usr/sbin", "/sbin", "/usr/bin", "/bin"):
+        if os.access(os.path.join(d, tool), os.X_OK):
+            return
+    raise HelperError("%s is not installed, so %s shares cannot be mounted. "
+                      "Install the %s package." % (tool, kind.upper(), pkg))
+
+
 def cmd_apply(req):
     spec = validate_spec(req.get("spec"))
+    if req.get("connect", True):
+        require_mount_helper(spec["type"])
     password = req.get("password")
     if password is not None and (not isinstance(password, str) or not CRED_FIELD_RE.match(password)):
         raise HelperError("The password cannot contain line breaks.")

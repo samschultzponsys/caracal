@@ -5,6 +5,7 @@
 <policyconfig>
   <vendor>Spazcat Enterprises</vendor>
   <vendor_url>https://github.com/samschultzponsys/catamount</vendor_url>
+  <icon_name>com.spazcat.CataMount</icon_name>
   <action id="com.spazcat.CataMount.manage">
     <description>Manage network drives</description>
     <message>Authentication is required to add, change or remove network drives</message>

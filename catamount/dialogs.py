@@ -8,10 +8,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-    QSpinBox, QTextBrowser, QVBoxLayout, QWidget,
+    QSpinBox, QSystemTrayIcon, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from catamount import APP_NAME, __version__
+from catamount import autostart, deps
+from catamount.icons import TRAY_STYLES
 from catamount.model import format_remote, new_drive_id, parse_address, suggest_mount_point
 from catamount.theme import THEMES
 
@@ -29,6 +31,11 @@ DEFAULTS = {
     "default_idle_minutes": 0,
     "default_start_at_boot": True,
     "confirm_remove": True,
+    "tray_enabled": True,
+    "close_to_tray": True,
+    "notify_failures": True,
+    "tray_hint_shown": False,
+    "tray_icon_style": "color",
 }
 
 
@@ -343,10 +350,59 @@ class PreferencesDialog(QDialog):
         form.addRow("Default idle disconnect:", self.idle)
         form.addRow(self.confirm)
         layout.addLayout(form)
+
+        tray_box = QGroupBox("System tray")
+        tform = _form()
+        self.tray_enabled = QCheckBox("Show CataMount in the system tray")
+        self.tray_enabled.setChecked(setting(settings, "tray_enabled"))
+        self.close_to_tray = QCheckBox("Closing the window keeps CataMount running in the tray")
+        self.close_to_tray.setChecked(setting(settings, "close_to_tray"))
+        self.notify = QCheckBox("Notify me when a drive fails or disconnects")
+        self.notify.setChecked(setting(settings, "notify_failures"))
+        self.login = QCheckBox("Start CataMount in the tray when I log in")
+        self.login.setChecked(autostart.is_enabled())
+        self.tray_style = _combo(TRAY_STYLES, setting(settings, "tray_icon_style"))
+        for w in (self.tray_enabled, self.close_to_tray, self.notify, self.login):
+            tform.addRow(w)
+        tform.addRow("Tray icon:", self.tray_style)
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            status = deps.appindicator_status()
+            text = "No system tray was found, so closing the window quits CataMount."
+            if status == "missing":
+                text += (" GNOME needs the AppIndicator extension for a tray. Install it with:\n"
+                         + deps.appindicator_install_hint() + "\nthen log out and back in.")
+            elif status == "disabled":
+                text += " GNOME's AppIndicator extension is installed but turned off."
+            note = QLabel(text)
+            note.setWordWrap(True)
+            note.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            tform.addRow(note)
+            if status == "disabled":
+                btn = QPushButton("Turn on the tray extension")
+                btn.clicked.connect(lambda: self._enable_indicator(btn, note))
+                tform.addRow(btn)
+        self.tray_enabled.toggled.connect(self._tray_toggled)
+        self._tray_toggled(self.tray_enabled.isChecked())
+        tray_box.setLayout(tform)
+        layout.addWidget(tray_box)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _enable_indicator(self, btn, note):
+        if deps.enable_appindicator():
+            btn.setEnabled(False)
+            note.setText("Tray extension turned on. If the CataMount icon doesn't appear, "
+                         "log out and back in.")
+        else:
+            QMessageBox.warning(self, "Preferences", "Could not turn on the extension. "
+                                "Use the Extensions app instead.")
+
+    def _tray_toggled(self, on):
+        for w in (self.close_to_tray, self.notify, self.tray_style):
+            w.setEnabled(on)
 
     def _save(self):
         root = self.mount_root.text().strip()
@@ -361,7 +417,15 @@ class PreferencesDialog(QDialog):
         s.setValue("default_start_at_boot", self.start_at_boot.isChecked())
         s.setValue("default_idle_minutes", self.idle.value())
         s.setValue("confirm_remove", self.confirm.isChecked())
+        s.setValue("tray_enabled", self.tray_enabled.isChecked())
+        s.setValue("close_to_tray", self.close_to_tray.isChecked())
+        s.setValue("notify_failures", self.notify.isChecked())
+        s.setValue("tray_icon_style", self.tray_style.currentData())
         s.sync()
+        try:
+            autostart.set_enabled(self.login.isChecked())
+        except OSError as exc:
+            QMessageBox.warning(self, "Preferences", "Could not change start at login: %s" % exc)
         self.accept()
 
 

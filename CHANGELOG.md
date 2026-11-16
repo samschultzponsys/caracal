@@ -12,5 +12,9 @@ First release.
 - SMB passwords are stored in root-only credential files, never in the unit files.
 - Connect, disconnect, edit, remove and open drives from the main window; status refreshes automatically.
 - Read-only view of existing network mounts in `/etc/fstab` (CataMount never edits it).
+- System tray: close to tray, tray menu to connect/disconnect/open drives, notifications when a drive fails or drops, optional start at login in the tray, and a choice of color, white or dark tray icon.
+- Only one copy runs at a time; opening it again brings the window forward.
+- Warns at startup if a needed system tool (cifs-utils, nfs-utils, pkexec) is missing and shows how to install it.
+- New app icon: a cat-eared network folder.
 - Light, dark and follow-system themes.
-- RPM (Fedora) and DEB (Debian 13+, Ubuntu 24.04+) packages.
+- RPM (Fedora) and DEB (Debian 13+, Ubuntu 26.04+) packages. All dependencies are installed automatically.

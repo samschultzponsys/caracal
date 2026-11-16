@@ -8,12 +8,20 @@ Source0:        %{name}-%{version}.tar.gz
 BuildArch:      noarch
 
 BuildRequires:  make
+# GUI: Python 3 + PySide6 (QtCore/QtGui/QtWidgets/QtNetwork) + SVG icon support
 Requires:       python3
 Requires:       python3-pyside6
+Requires:       qt6-qtsvg
+# Privileged changes (pkexec + polkit policy) and systemd mount units
 Requires:       polkit
 Requires:       systemd
+# Kernel mount helpers for SMB and NFS
 Requires:       cifs-utils
 Requires:       nfs-utils
+# Resolve .local (mDNS) server names
+Recommends:     nss-mdns
+# GNOME has no tray without this extension (KDE and most others have one built in)
+Recommends:     (gnome-shell-extension-appindicator if gnome-shell)
 
 %description
 CataMount works like "Map network drive" on Windows. It creates persistent
@@ -37,3 +45,5 @@ make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 %{_datadir}/polkit-1/actions/com.spazcat.CataMount.policy
 %{_datadir}/applications/com.spazcat.CataMount.desktop
 %{_metainfodir}/com.spazcat.CataMount.metainfo.xml
+%{_datadir}/icons/hicolor/scalable/apps/com.spazcat.CataMount.svg
+%{_datadir}/icons/hicolor/symbolic/apps/com.spazcat.CataMount-symbolic.svg

@@ -5,14 +5,16 @@
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHeaderView, QLabel, QMainWindow, QMenu, QMessageBox,
-    QPushButton, QStackedWidget, QStyle, QTabWidget, QToolBar, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QHeaderView, QLabel, QMainWindow, QMenu,
+    QMessageBox, QPushButton, QStackedWidget, QStyle, QSystemTrayIcon, QTabWidget,
+    QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from catamount import APP_NAME, __version__
+from catamount import deps
 from catamount.dialogs import ChangelogDialog, DriveDialog, PreferencesDialog, setting
 from catamount.helper_client import HelperClient
+from catamount.icons import tray_icon
 from catamount.model import STATE_LABELS, load_drives, load_fstab, refresh_states
 from catamount.theme import apply_theme
 
@@ -22,13 +24,16 @@ def _icon(widget, theme_name, fallback):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, start_in_tray=False):
         super().__init__()
         self.settings = QSettings("catamount", "catamount")
         self.drives = []
         self.helper = HelperClient(self)
         self.helper.finished.connect(self._helper_done)
         self._pending = ""
+        self._prev_states = None
+        self._quitting = False
+        self.tray = None
 
         self.setWindowTitle(APP_NAME)
         self.setMinimumWidth(480)
@@ -40,6 +45,142 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self.refresh)
         self._apply_settings()
         self.refresh()
+        self._check_deps()
+
+        if start_in_tray:
+            self._wait_for_tray(tries=15)
+        else:
+            self.show()
+
+    # -- tray -------------------------------------------------------------
+
+    def _wait_for_tray(self, tries):
+        """At login the tray host may appear after us; wait for it, then fall back."""
+        if self.tray is not None:
+            return
+        if tries <= 0:
+            self.showMinimized()
+            return
+        if setting(self.settings, "tray_enabled") and QSystemTrayIcon.isSystemTrayAvailable():
+            self._update_tray()
+            return
+        if not setting(self.settings, "tray_enabled"):
+            self.showMinimized()
+            return
+        QTimer.singleShot(1000, lambda: self._wait_for_tray(tries - 1))
+
+    def _update_tray(self):
+        want = setting(self.settings, "tray_enabled") and QSystemTrayIcon.isSystemTrayAvailable()
+        if want and self.tray is None:
+            self.tray = QSystemTrayIcon(tray_icon(setting(self.settings, "tray_icon_style")), self)
+            self.tray_menu = QMenu(self)
+            self.tray_menu.aboutToShow.connect(self._build_tray_menu)
+            self._build_tray_menu()
+            self.tray.setContextMenu(self.tray_menu)
+            self.tray.activated.connect(self._tray_activated)
+            self.tray.show()
+            self._update_tray_status()
+        elif not want and self.tray is not None:
+            self.tray.hide()
+            self.tray.deleteLater()
+            self.tray = None
+            if not self.isVisible():
+                self.show_window()
+
+    def _tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            if self.isVisible() and not self.isMinimized() and self.isActiveWindow():
+                self.hide()
+            else:
+                self.show_window()
+
+    def _build_tray_menu(self):
+        m = self.tray_menu
+        m.clear()
+        shown = self.isVisible() and not self.isMinimized()
+        m.addAction("Hide %s" % APP_NAME if shown else "Show %s" % APP_NAME,
+                    self.hide if shown else self.show_window)
+        m.addSeparator()
+        if not self.drives:
+            a = m.addAction("No network drives")
+            a.setEnabled(False)
+        for d in self.drives:
+            sub = m.addMenu("%s — %s" % (d.name, STATE_LABELS.get(d.state, d.state)))
+            a = sub.addAction("Open folder", lambda d=d: self._open(d))
+            a.setEnabled(d.state in ("connected", "ready"))
+            a = sub.addAction("Connect", lambda d=d: self._run_on(d, "connect"))
+            a.setEnabled(d.state != "connected" and not self.helper.busy)
+            a = sub.addAction("Disconnect", lambda d=d: self._run_on(d, "disconnect"))
+            a.setEnabled(d.state != "disconnected" and not self.helper.busy)
+        m.addSeparator()
+        a = m.addAction("Map network drive…", lambda: (self.show_window(), self.add_drive()))
+        a.setEnabled(not self.helper.busy)
+        m.addSeparator()
+        m.addAction("Quit", self.quit)
+
+    def _update_tray_status(self):
+        if self.tray is None:
+            return
+        connected = sum(1 for d in self.drives if d.state == "connected")
+        failed = [d for d in self.drives if d.state == "failed"]
+        tip = "%s — %d of %d drives connected" % (APP_NAME, connected, len(self.drives))
+        if failed:
+            tip += "\nFailed: " + ", ".join(d.name for d in failed)
+        self.tray.setToolTip(tip)
+        self.tray.setIcon(tray_icon(setting(self.settings, "tray_icon_style"),
+                                     "failed" if failed else None))
+
+    def _notify_changes(self):
+        states = {d.id: (d.name, d.state) for d in self.drives}
+        prev, self._prev_states = self._prev_states, states
+        if prev is None or self.tray is None or not setting(self.settings, "notify_failures"):
+            return
+        for drive_id, (name, state) in states.items():
+            old = prev.get(drive_id, (name, None))[1]
+            if state == "failed" and old not in (None, "failed"):
+                self.tray.showMessage(APP_NAME, "%s failed to connect." % name,
+                                      QSystemTrayIcon.Warning, 8000)
+            elif old == "connected" and state == "disconnected" and not self._pending:
+                self.tray.showMessage(APP_NAME, "%s was disconnected." % name,
+                                      QSystemTrayIcon.Information, 5000)
+
+    def show_window(self):
+        if self.isMinimized():
+            self.showNormal()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def closeEvent(self, event):
+        if (not self._quitting and self.tray is not None
+                and setting(self.settings, "close_to_tray")):
+            event.ignore()
+            self.hide()
+            if not setting(self.settings, "tray_hint_shown"):
+                self.tray.showMessage(APP_NAME, "CataMount is still running in the system tray. "
+                                      "Use Quit in the tray menu to exit.",
+                                      QSystemTrayIcon.Information, 6000)
+                self.settings.setValue("tray_hint_shown", True)
+            return
+        event.accept()
+        self.quit()
+
+    def quit(self):
+        self._quitting = True
+        if self.tray is not None:
+            self.tray.hide()
+        QApplication.instance().quit()
+
+    def _check_deps(self):
+        missing = deps.missing()
+        if not missing:
+            return
+        lines = "\n".join("• %s — needed for %s" % (t, p) for t, p, _f, _d in missing)
+        box = QMessageBox(QMessageBox.Warning, APP_NAME,
+                          "Some system tools CataMount needs are missing.", parent=self)
+        box.setInformativeText(lines + "\n\nInstall them with:\n" + deps.install_hint(missing))
+        box.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        QTimer.singleShot(0, box.exec)
 
     # -- construction -----------------------------------------------------
 
@@ -72,7 +213,7 @@ class MainWindow(QMainWindow):
         self.act_prefs.triggered.connect(self.preferences)
         self.act_quit = QAction("&Quit", self)
         self.act_quit.setShortcut(QKeySequence.Quit)
-        self.act_quit.triggered.connect(self.close)
+        self.act_quit.triggered.connect(self.quit)
         self.act_changelog = QAction("&Changelog", self)
         self.act_changelog.triggered.connect(self.show_changelog)
         self.act_about = QAction("&About %s" % APP_NAME, self)
@@ -175,6 +316,8 @@ class MainWindow(QMainWindow):
     def _apply_settings(self):
         apply_theme(setting(self.settings, "theme"))
         self.timer.start(setting(self.settings, "refresh_seconds") * 1000)
+        if self.tray is not None or self.isVisible():
+            self._update_tray()
 
     # -- data -------------------------------------------------------------
 
@@ -214,6 +357,10 @@ class MainWindow(QMainWindow):
             self.fstab_tree.addTopLevelItem(QTreeWidgetItem(
                 [e.source, e.target, e.kind, "Yes" if e.mounted else "No", e.options]))
         self._update_actions()
+        self._notify_changes()
+        if self.tray is None and self.isVisible() and setting(self.settings, "tray_enabled"):
+            self._update_tray()  # e.g. the tray host appeared after we started
+        self._update_tray_status()
 
     def _update_actions(self):
         d = self.selected()
@@ -240,6 +387,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(label + " — done.", 5000)
         else:
             self.statusBar().showMessage(label + " — failed.", 5000)
+            if not self.isVisible():
+                self.show_window()
             box = QMessageBox(QMessageBox.Warning, APP_NAME, label + " failed.", parent=self)
             first, _, rest = error.partition("\n\n")
             box.setInformativeText(first)
@@ -285,13 +434,21 @@ class MainWindow(QMainWindow):
     def _run_on_selected(self, command):
         d = self.selected()
         if d:
-            verb = "Connecting" if command == "connect" else "Disconnecting"
-            self._run(command, {"id": d.id}, "%s %s" % (verb, d.name))
+            self._run_on(d, command)
+
+    def _run_on(self, d, command):
+        if self.helper.busy:
+            return
+        verb = "Connecting" if command == "connect" else "Disconnecting"
+        self._run(command, {"id": d.id}, "%s %s" % (verb, d.name))
 
     def open_folder(self):
         d = self.selected()
         if d:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(d.mount_point))
+            self._open(d)
+
+    def _open(self, d):
+        QDesktopServices.openUrl(QUrl.fromLocalFile(d.mount_point))
 
     def _double_click(self):
         d = self.selected()

@@ -2,6 +2,39 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-16 — Tray, dependencies, icon (still v0.1, unreleased)
+
+### Done
+- **Tray** (`mainwindow.py`): QSystemTrayIcon with a menu rebuilt on `aboutToShow`
+  (show/hide, per-drive open/connect/disconnect, map drive, quit). Left click toggles the
+  window. Close hides to tray when a tray exists and `close_to_tray` is on; otherwise it
+  quits. `--tray` starts hidden. It waits up to 15 s for a tray host at login, then
+  falls back to a minimized window. The tooltip shows the connected count. The icon gets
+  a red badge if any drive failed. Notifications fire on a change to failed, or when
+  connected → disconnected happens outside our own action. If a tray appears later,
+  refresh() picks it up.
+- **Single instance** (`app.py`): QLocalServer `catamount-<uid>`. A second launch sends
+  `show`/`tray` and exits.
+- **Autostart** (`autostart.py`): writes `~/.config/autostart/com.spazcat.CataMount.desktop`.
+- **Deps**: added `python3-pyside6.qtnetwork` and `qt6-svg-plugins` (Debian) and `qt6-qtsvg`
+  (Fedora). Recommends nss-mdns. GNOME appindicator: Fedora rich Recommends
+  `(… if gnome-shell)`, Debian Suggests (a plain Recommends would pull gnome-shell onto
+  KDE). `deps.py` checks mount.cifs, mount.nfs, pkexec and systemctl at startup and shows
+  the install command. The helper refuses `apply` with connect if the mount helper is
+  missing. Preferences can turn on the GNOME AppIndicator extension (`gnome-extensions enable`).
+- **Ubuntu**: only 26.04 LTS (resolute) packages PySide6; 24.04/24.10/25.04/25.10 do not.
+  Supported = Debian 13+, Ubuntu 26.04+. CLAUDE.md Project Notes updated.
+- **Icon**: chosen by Sam = riff "h" with ear style "4" (wide ears at the top
+  corners, dark folder, glowing 3-node network, green tile). Files:
+  `data/icons/hicolor/scalable/apps/com.spazcat.CataMount.svg`, `.../symbolic/...-symbolic.svg`,
+  `data/icons/tray/tray-{light,dark}.svg` (installed to /usr/share/catamount/icons/tray).
+  There are no PNGs (no generated files in git); scalable SVG is enough for GNOME/KDE.
+
+### Not verified on real hardware yet
+- The tray was only exercised offscreen with availability faked (menu, hide-on-close,
+  badge, notifications). Needs a check on KDE and on GNOME with the extension.
+- The RPM still hasn't been built (first CI run will be the test).
+
 ## 2026-11-16 — Kickoff scaffold (v0.1)
 
 ### State
@@ -45,14 +78,10 @@ Working notes for the next session. Newest first.
   plus a palette.
 
 ### Open / next
-- **Icon**: not chosen. The .desktop uses the `folder-remote` theme icon as a placeholder.
-  Present options (see chat on kickoff) and then add `data/icons/hicolor/...` +
-  the polkit `<icon_name>`.
 - **Auto-update** (second pass): check GitHub Releases at most daily (cached), download
   RPM/DEB + SHA256SUMS, verify the hash, add a helper `install-update` command
   (dnf/apt install of a verified file in a root-owned temp dir), and show a dot on the
   version label plus newer notes in the changelog dialog.
-- Verify on real hosts: Fedora (python3-pyside6) and Ubuntu 24.04 (does noble ship
-  `python3-pyside6.qtwidgets`? If not, 24.04 support needs another route).
+- Verify on real hosts: Fedora 42+ and Debian 13 / Ubuntu 26.04.
 - Ideas: Kerberos (sec=krb5 + cruid) option; "Browse network" (SMB discovery via
   avahi/wsdd); per-drive "show in file manager sidebar" (GTK bookmarks).

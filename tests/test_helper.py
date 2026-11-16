@@ -18,6 +18,8 @@ loader.exec_module(helper)
 
 from catamount import model  # noqa: E402
 
+REAL_REQUIRE = helper.require_mount_helper
+
 DRIVE_ID = "0b6f7c1e-3a2d-4c55-9a77-1f2e3d4c5b6a"
 
 
@@ -151,6 +153,7 @@ class ApplyTests(unittest.TestCase):
                    mock.patch.object(helper, "CRED_DIR", self.creds),
                    mock.patch.object(helper, "FSTAB", self.fstab),
                    mock.patch.object(helper, "run", self.fake_run),
+                   mock.patch.object(helper, "require_mount_helper", lambda kind: None),
                    # temp dirs live under /tmp, which real mounts may not use
                    mock.patch.object(helper, "DENY_TREES",
                                      tuple(t for t in helper.DENY_TREES if t != "/tmp"))]
@@ -218,6 +221,12 @@ class ApplyTests(unittest.TestCase):
         open(os.path.join(sp["mount_point"], "file"), "w").close()
         with self.assertRaises(helper.HelperError):
             helper.cmd_apply({"spec": sp, "password": "x", "connect": False})
+
+    def test_missing_mount_helper(self):
+        with mock.patch.object(helper.os, "access", return_value=False):
+            with self.assertRaises(helper.HelperError) as ctx:
+                REAL_REQUIRE("smb")
+        self.assertIn("cifs-utils", str(ctx.exception))
 
     def test_unknown_drive(self):
         with self.assertRaises(helper.HelperError):
