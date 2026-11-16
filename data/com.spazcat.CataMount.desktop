@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=CataMount
+GenericName=Network Drives
+Comment=Map SMB and NFS network drives
+Exec=catamount
+Icon=folder-remote
+Terminal=false
+Categories=Qt;System;Network;FileTools;
+Keywords=smb;cifs;nfs;samba;network;drive;share;mount;
+StartupWMClass=catamount

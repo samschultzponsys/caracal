@@ -1,0 +1,24 @@
+Source: catamount
+Section: admin
+Priority: optional
+Maintainer: Spazcat Enterprises <noreply@spazcat.com>
+Build-Depends: debhelper-compat (= 13), make
+Standards-Version: 4.7.0
+Homepage: https://github.com/samschultzponsys/catamount
+Rules-Requires-Root: no
+
+Package: catamount
+Architecture: all
+Depends: ${misc:Depends},
+         python3,
+         python3-pyside6.qtcore,
+         python3-pyside6.qtgui,
+         python3-pyside6.qtwidgets,
+         pkexec | policykit-1,
+         systemd,
+         cifs-utils,
+         nfs-common
+Description: Map SMB and NFS network drives as persistent systemd mounts
+ CataMount works like "Map network drive" on Windows. It creates persistent
+ systemd .mount/.automount units for SMB and NFS shares, stores SMB passwords
+ in root-only credential files, and never edits /etc/fstab.

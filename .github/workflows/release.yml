@@ -1,0 +1,72 @@
+# Builds the RPM and DEB.
+# - Tag push (v0.1, v1.2, ...): builds and publishes to GitHub Releases.
+# - Manual run: test build only, nothing is published or stored.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run tests
+        run: python3 -m unittest -v
+
+      - name: Check version numbers
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            packaging/check-version.sh "${GITHUB_REF_NAME}"
+          else
+            packaging/check-version.sh
+          fi
+
+      - name: Cache package downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/dnf
+            .cache/apt
+          key: pkgcache-${{ hashFiles('packaging/build-*.sh') }}
+          restore-keys: pkgcache-
+
+      - name: Build RPM (Fedora)
+        run: |
+          mkdir -p .cache/dnf .cache/apt
+          docker run --rm -v "$PWD:/src" -v "$PWD/.cache/dnf:/var/cache/dnf" -w /src \
+            fedora:42 bash packaging/build-rpm.sh
+
+      - name: Build DEB (Debian)
+        run: |
+          docker run --rm -v "$PWD:/src" -v "$PWD/.cache/apt:/var/cache/apt/archives" -w /src \
+            debian:trixie bash packaging/build-deb.sh
+
+      - name: Checksums
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" dist .cache
+          cd dist && sha256sum * | tee SHA256SUMS
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          V="${TAG#v}"
+          awk -v v="$V" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "CataMount $V" --notes-file notes.md
+          fi
+          gh release upload "$TAG" dist/* --clobber

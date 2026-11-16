@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Spazcat Enterprises -->
+<component type="desktop-application">
+  <id>com.spazcat.CataMount</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <name>CataMount</name>
+  <summary>Map SMB and NFS network drives</summary>
+  <developer id="com.spazcat">
+    <name>Spazcat Enterprises</name>
+  </developer>
+  <description>
+    <p>
+      CataMount works like “Map network drive” on Windows. Pick an SMB or NFS share,
+      choose a local folder, and CataMount creates a persistent systemd mount that
+      reconnects at startup or on first access.
+    </p>
+    <p>
+      It never edits /etc/fstab and shows existing fstab network mounts read-only.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.spazcat.CataMount.desktop</launchable>
+  <url type="homepage">https://github.com/samschultzponsys/catamount</url>
+  <url type="bugtracker">https://github.com/samschultzponsys/catamount/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1" date="2026-11-16"/>
+  </releases>
+</component>

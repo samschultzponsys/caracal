@@ -1,0 +1,230 @@
+# Copyright 2026 Spazcat Enterprises
+# SPDX-License-Identifier: Apache-2.0
+import importlib.machinery
+import importlib.util
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+loader = importlib.machinery.SourceFileLoader("catamount_helper",
+                                              os.path.join(ROOT, "helper", "catamount-helper"))
+spec_ = importlib.util.spec_from_loader("catamount_helper", loader)
+helper = importlib.util.module_from_spec(spec_)
+loader.exec_module(helper)
+
+from catamount import model  # noqa: E402
+
+DRIVE_ID = "0b6f7c1e-3a2d-4c55-9a77-1f2e3d4c5b6a"
+
+
+def smb_spec(**over):
+    spec = {"id": DRIVE_ID, "name": "Media on nas", "type": "smb", "server": "nas.local",
+            "share": "media", "mount_point": "/mnt/media", "automount": True,
+            "idle_timeout": 600, "start_at_boot": True, "read_only": False,
+            "extra_options": "", "smb": {"username": "sam", "domain": "", "guest": False,
+                                         "version": "3.1.1", "uid": 1000, "gid": 1000}}
+    spec.update(over)
+    return spec
+
+
+class EscapeTests(unittest.TestCase):
+    CASES = ["/mnt/media", "/mnt/my share", "/srv/.hidden", "/mnt/a-b/c_d",
+             "/mnt/ünï", "/mnt//double/", "/"]
+
+    def test_matches_systemd_escape(self):
+        if not shutil.which("systemd-escape"):
+            self.skipTest("systemd-escape not available")
+        for path in self.CASES:
+            want = subprocess.run(["systemd-escape", "--path", path], capture_output=True,
+                                  text=True).stdout.strip()
+            self.assertEqual(helper.escape_path(path), want, path)
+            self.assertEqual(model.escape_path(path), want, path)
+
+    def test_known_values(self):
+        self.assertEqual(helper.escape_path("/mnt/my share"), "mnt-my\\x20share")
+        self.assertEqual(helper.escape_path("/srv/.hidden"), "srv-.hidden")
+        self.assertEqual(helper.escape_path("/.x"), "\\x2ex")
+        self.assertEqual(helper.escape_path("/mnt/a-b"), "mnt-a\\x2db")
+
+
+class ValidationTests(unittest.TestCase):
+    def test_valid_smb(self):
+        spec = helper.validate_spec(smb_spec())
+        self.assertEqual(spec["share"], "media")
+        self.assertEqual(spec["smb"]["uid"], 1000)
+
+    def bad(self, **over):
+        with self.assertRaises(helper.HelperError):
+            helper.validate_spec(smb_spec(**over))
+
+    def test_rejects(self):
+        self.bad(id="not-a-uuid")
+        self.bad(name="")
+        self.bad(name="a\nb")
+        self.bad(type="ftp")
+        self.bad(server="bad host")
+        self.bad(server="-oops")
+        self.bad(share="../etc")
+        self.bad(share="a\\b")
+        self.bad(mount_point="relative")
+        self.bad(mount_point="/")
+        self.bad(mount_point="/etc/x")
+        self.bad(mount_point="/home/sam")
+        self.bad(mount_point="/mnt/../etc")
+        self.bad(mount_point="/run/media/x")
+        self.bad(extra_options="credentials=/root/x")
+        self.bad(extra_options="ro\nExecStart=/bin/sh")
+        self.bad(extra_options="x-systemd.requires=foo")
+        self.bad(idle_timeout=-1)
+        self.bad(automount="yes")
+        self.bad(smb={"username": "", "guest": False})
+
+    def test_nfs(self):
+        spec = helper.validate_spec({"id": DRIVE_ID, "name": "x", "type": "nfs",
+                                     "server": "10.0.0.5", "share": "/srv/data",
+                                     "mount_point": "/home/sam/data", "nfs": {"version": "4.2"}})
+        self.assertEqual(helper.mount_source(spec), "10.0.0.5:/srv/data")
+        self.assertIn("vers=4.2", helper.mount_options(spec))
+        with self.assertRaises(helper.HelperError):
+            helper.validate_spec({"id": DRIVE_ID, "name": "x", "type": "nfs", "server": "h",
+                                  "share": "srv", "mount_point": "/mnt/x"})
+
+
+class RenderTests(unittest.TestCase):
+    def test_render_automount(self):
+        spec = helper.validate_spec(smb_spec(name="100% media"))
+        units = helper.render_units(spec)
+        self.assertEqual(sorted(units), ["mnt-media.automount", "mnt-media.mount"])
+        mount = units["mnt-media.mount"]
+        self.assertTrue(mount.startswith(helper.MANAGED_HEADER + "\n" + helper.ID_PREFIX))
+        self.assertIn("What=//nas.local/media\n", mount)
+        self.assertIn("Type=cifs\n", mount)
+        self.assertIn("credentials=/etc/catamount/creds/%s.cred" % DRIVE_ID, mount)
+        self.assertIn("Description=CataMount: 100%% media", mount)
+        self.assertNotIn("[Install]", mount)
+        auto = units["mnt-media.automount"]
+        self.assertIn("TimeoutIdleSec=600", auto)
+        self.assertIn("WantedBy=remote-fs.target", auto)
+
+    def test_render_plain_guest(self):
+        spec = helper.validate_spec(smb_spec(automount=False, read_only=True,
+                                             smb={"guest": True, "username": "", "uid": 1000}))
+        units = helper.render_units(spec)
+        self.assertEqual(list(units), ["mnt-media.mount"])
+        mount = units["mnt-media.mount"]
+        self.assertIn("guest", mount)
+        self.assertNotIn("credentials=", mount)
+        self.assertIn(",ro", mount)
+        self.assertIn("WantedBy=remote-fs.target", mount)
+
+    def test_gui_parses_rendered_units(self):
+        spec = helper.validate_spec(smb_spec())
+        with tempfile.TemporaryDirectory() as d:
+            for name, content in helper.render_units(spec).items():
+                with open(os.path.join(d, name), "w") as fh:
+                    fh.write(content)
+            with open(os.path.join(d, "other.mount"), "w") as fh:
+                fh.write("[Mount]\nWhat=/dev/sda1\n")
+            drives = model.load_drives(d)
+        self.assertEqual(len(drives), 1)
+        drv = drives[0]
+        self.assertEqual(drv.spec, spec)
+        self.assertEqual(drv.automount_unit, "mnt-media.automount")
+        self.assertEqual(drv.remote, "\\\\nas.local\\media")
+
+
+class ApplyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.units = os.path.join(self.tmp, "units")
+        os.makedirs(self.units)
+        self.creds = os.path.join(self.tmp, "etc", "catamount", "creds")
+        self.fstab = os.path.join(self.tmp, "fstab")
+        with open(self.fstab, "w") as fh:
+            fh.write("//old/share /mnt/fstabbed cifs defaults 0 0\n")
+        self.calls = []
+        patches = [mock.patch.object(helper, "UNIT_DIR", self.units),
+                   mock.patch.object(helper, "CRED_DIR", self.creds),
+                   mock.patch.object(helper, "FSTAB", self.fstab),
+                   mock.patch.object(helper, "run", self.fake_run),
+                   # temp dirs live under /tmp, which real mounts may not use
+                   mock.patch.object(helper, "DENY_TREES",
+                                     tuple(t for t in helper.DENY_TREES if t != "/tmp"))]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def fake_run(self, *args, check=True):
+        self.calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    def spec(self, **over):
+        return smb_spec(mount_point=os.path.join(self.tmp, "mnt", "media"), **over)
+
+    def test_apply_writes_units_and_creds(self):
+        res = helper.cmd_apply({"spec": self.spec(), "password": "s3cret", "connect": True})
+        self.assertEqual(len(res["units"]), 2)
+        cred = os.path.join(self.creds, DRIVE_ID + ".cred")
+        self.assertEqual(os.stat(cred).st_mode & 0o777, 0o600)
+        with open(cred) as fh:
+            self.assertEqual(fh.read(), "username=sam\npassword=s3cret\n")
+        cmds = [c[1:3] for c in self.calls if c[0] == "systemctl"]
+        self.assertIn(("daemon-reload",), [c[:1] for c in cmds])
+        self.assertTrue(any(c[0] == "enable" and c[1].endswith(".automount") for c in cmds))
+
+        # Edit without password keeps the old one; username change is applied.
+        sp = self.spec()
+        sp["smb"] = dict(sp["smb"], username="other")
+        helper.cmd_apply({"spec": sp, "connect": False})
+        with open(cred) as fh:
+            self.assertEqual(fh.read(), "username=other\npassword=s3cret\n")
+
+        # Move to a new folder: old units are removed.
+        old = set(os.listdir(self.units))
+        helper.cmd_apply({"spec": smb_spec(mount_point=os.path.join(self.tmp, "mnt", "new")),
+                          "connect": False})
+        new = set(os.listdir(self.units))
+        self.assertFalse(old & new)
+        self.assertEqual(len(new), 2)
+
+        helper.cmd_remove({"id": DRIVE_ID})
+        self.assertEqual(os.listdir(self.units), [])
+        self.assertFalse(os.path.exists(cred))
+
+    def test_new_smb_requires_password(self):
+        with self.assertRaises(helper.HelperError):
+            helper.cmd_apply({"spec": self.spec(), "connect": False})
+
+    def test_refuses_unmanaged_unit(self):
+        sp = self.spec()
+        base = helper.escape_path(sp["mount_point"])
+        with open(os.path.join(self.units, base + ".mount"), "w") as fh:
+            fh.write("[Mount]\n")
+        with self.assertRaises(helper.HelperError):
+            helper.cmd_apply({"spec": sp, "password": "x", "connect": False})
+
+    def test_refuses_fstab_and_nonempty(self):
+        with mock.patch.object(helper, "fstab_mount_points", return_value={"/mnt/fstabbed"}):
+            with self.assertRaises(helper.HelperError):
+                helper.cmd_apply({"spec": smb_spec(mount_point="/mnt/fstabbed"),
+                                  "password": "x", "connect": False})
+        sp = self.spec()
+        os.makedirs(sp["mount_point"])
+        open(os.path.join(sp["mount_point"], "file"), "w").close()
+        with self.assertRaises(helper.HelperError):
+            helper.cmd_apply({"spec": sp, "password": "x", "connect": False})
+
+    def test_unknown_drive(self):
+        with self.assertRaises(helper.HelperError):
+            helper.cmd_remove({"id": DRIVE_ID})
+        with self.assertRaises(helper.HelperError):
+            helper.cmd_connect({"id": "../../etc"})
+
+
+if __name__ == "__main__":
+    unittest.main()
