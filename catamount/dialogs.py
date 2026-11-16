@@ -36,6 +36,7 @@ DEFAULTS = {
     "notify_failures": True,
     "tray_hint_shown": False,
     "tray_icon_style": "color",
+    "auto_check_updates": True,
 }
 
 
@@ -349,6 +350,9 @@ class PreferencesDialog(QDialog):
         form.addRow(self.start_at_boot)
         form.addRow("Default idle disconnect:", self.idle)
         form.addRow(self.confirm)
+        self.auto_updates = QCheckBox("Check for updates automatically (once a day)")
+        self.auto_updates.setChecked(setting(settings, "auto_check_updates"))
+        form.addRow(self.auto_updates)
         layout.addLayout(form)
 
         tray_box = QGroupBox("System tray")
@@ -421,6 +425,7 @@ class PreferencesDialog(QDialog):
         s.setValue("close_to_tray", self.close_to_tray.isChecked())
         s.setValue("notify_failures", self.notify.isChecked())
         s.setValue("tray_icon_style", self.tray_style.currentData())
+        s.setValue("auto_check_updates", self.auto_updates.isChecked())
         s.sync()
         try:
             autostart.set_enabled(self.login.isChecked())
@@ -442,15 +447,36 @@ def changelog_text():
 
 
 class ChangelogDialog(QDialog):
-    def __init__(self, parent=None):
+    """Local changelog. When an update is available its release notes go on top,
+    with a button to install it (or open the download page)."""
+
+    INSTALL = 2
+    DOWNLOAD_PAGE = 3
+
+    def __init__(self, parent=None, update=None, can_install=False, error=""):
         super().__init__(parent)
         self.setWindowTitle("%s %s — Changelog" % (APP_NAME, __version__))
-        self.resize(560, 480)
+        self.resize(580, 520)
         layout = QVBoxLayout(self)
+        text = ""
+        if update:
+            text += "# Version %s is available\n\n%s\n\n---\n\n" % (
+                update["version"], update.get("notes") or "_No release notes._")
+        elif error:
+            text += "_%s_\n\n---\n\n" % error
+        text += changelog_text()
         view = QTextBrowser()
         view.setOpenExternalLinks(True)
-        view.setMarkdown(changelog_text())
+        view.setMarkdown(text)
         layout.addWidget(view)
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        if update:
+            if can_install:
+                btn = buttons.addButton("Install %s" % update["version"],
+                                        QDialogButtonBox.AcceptRole)
+                btn.clicked.connect(lambda: self.done(self.INSTALL))
+            else:
+                btn = buttons.addButton("Open download page", QDialogButtonBox.AcceptRole)
+                btn.clicked.connect(lambda: self.done(self.DOWNLOAD_PAGE))
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

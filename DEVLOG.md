@@ -2,6 +2,42 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-16 — Auto-update (still v0.1, unreleased)
+
+### Done
+- `updater.py` (no Qt): version compare, release parsing, picking assets
+  (`catamount-X.Y-1.noarch.rpm` / `catamount_X.Y_all.deb` + `SHA256SUMS`), cache in
+  `~/.cache/catamount/update.json` (checked_at, etag, release, error, backoff_until),
+  24 h interval, rate-limit backoff from Retry-After / X-RateLimit-Reset.
+  `install_kind()` uses `rpm -q` / `dpkg-query`; None means a source checkout, which
+  only gets a download link.
+- `update_client.py`: async QNetworkAccessManager. Sends ETag/If-None-Match, so a 304
+  doesn't use rate limit. A 404 (no releases) counts as up to date. Other failures retry
+  after 1 h. Downloads go to `~/.cache/catamount/updates/` and are verified against
+  SHA256SUMS; a mismatch is deleted.
+- Helper `install-update {path, sha256}`: checks the name pattern, reads the user file once
+  (O_NOFOLLOW, 100 MB cap), checks sha256, writes a root-owned copy in
+  /var/cache/catamount/update, checks package Name/Version (rpm -qp / dpkg-deb -f) and that
+  it's newer than installed, then `dnf install -y` (retries with --nogpgcheck only on a
+  GPG/signature error, since release packages are unsigned) or `apt-get install -y`, then
+  removes the copy.
+- UI: green dot on the version label, changelog dialog puts the new notes on top with
+  Install / Open download page, Help → Check for updates, tray menu entry, a one-time tray
+  notification per version, and a restart offer (releases the single-instance socket
+  before spawning).
+- Repo is public, so there's no PAT field (CLAUDE.md asks for one only for private repos).
+- Tested: unit tests (27), live API check (404 → up to date), download+verify against a
+  local HTTP server (good accepted, tampered rejected), helper install path with the real
+  DEB on Ubuntu 24.04 (fails cleanly on missing PySide6 deps, as expected).
+
+### Fixed
+- Tray and symbolic icon ears extended to the outer edge of the box stroke (they sat
+  ~1 px inside). The app icon was already flush.
+
+### Next
+- Cut v0.1 to exercise the RPM build and the first real release; then v0.2 to test an
+  end-to-end update on Fedora and Debian.
+
 ## 2026-11-16 — Tray, dependencies, icon (still v0.1, unreleased)
 
 ### Done

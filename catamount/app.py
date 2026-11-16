@@ -15,6 +15,15 @@ USAGE = """Usage: catamount [--tray] [--version]
 """
 
 
+_server = None
+
+
+def release_instance_lock():
+    """Stop answering as the running instance (used right before a restart)."""
+    if _server is not None:
+        _server.close()
+
+
 def _server_name():
     return "catamount-%d" % os.getuid()
 
@@ -52,8 +61,9 @@ def main(argv=None):
     # Single instance: a second launch just brings the first window forward.
     if _forward_to_running("tray" if start_in_tray else "show"):
         return 0
+    global _server
     QLocalServer.removeServer(_server_name())  # clear a stale socket after a crash
-    server = QLocalServer()
+    server = _server = QLocalServer()
     server.setSocketOptions(QLocalServer.UserAccessOption)
     server.listen(_server_name())
 

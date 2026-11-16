@@ -16,6 +16,8 @@ read-only.
   connects/disconnects/opens drives, and you get a notification if a drive fails.
   Optional start at login (straight into the tray).
 - Light, dark or follow-system theme.
+- Updates itself from GitHub Releases: a green dot on the version number means
+  an update is ready, and one click downloads, verifies and installs it.
 
 ## Install
 
@@ -97,6 +99,25 @@ can read and write files normally.
 Uninstalling the package leaves your drives mounted and working. Remove them in
 the app first if you want them gone.
 
+## Updates
+
+CataMount checks [GitHub Releases](https://github.com/samschultzponsys/catamount/releases)
+at most once a day. You can turn this off in Preferences, and **Help → Check
+for updates** checks on demand. Results are cached in
+`~/.cache/catamount/update.json`. When an update exists:
+
+- the version number in the status bar shows a green dot, and the tray menu offers it;
+- clicking the version number opens the changelog with the new version's notes
+  on top and an **Install** button;
+- CataMount downloads the RPM or DEB and `SHA256SUMS`, and checks the hash. The helper
+  then copies the package to a root-owned folder, re-checks the hash, confirms it's a newer
+  CataMount package, and installs it with `dnf` or `apt`. You enter your admin
+  password once. CataMount then offers to restart.
+
+If you run CataMount from source, the button opens the download page instead.
+If GitHub's API rate limit is hit, CataMount waits until the limit resets and
+says so in the changelog window.
+
 ## Preferences
 
 **File → Preferences**:
@@ -106,6 +127,7 @@ the app first if you want them gone.
 - Status refresh interval
 - Defaults for new drives: connect on first access, reconnect at startup, idle disconnect
 - Ask before removing a drive
+- Check for updates automatically (once a day)
 - System tray: show tray icon, close to tray, failure/disconnect notifications,
   start in the tray at login, tray icon style (color, white or dark)
 

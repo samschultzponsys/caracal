@@ -235,5 +235,59 @@ class ApplyTests(unittest.TestCase):
             helper.cmd_connect({"id": "../../etc"})
 
 
+class InstallUpdateTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.calls = []
+        self.pkg_info = "catamount 0.2"
+        self.installed = "0.1"
+        for p in (mock.patch.object(helper, "UPDATE_DIR", os.path.join(self.tmp, "cache")),
+                  mock.patch.object(helper, "run", self.fake_run)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def fake_run(self, *args, check=True):
+        self.calls.append(args)
+        out = ""
+        if args[:2] == ("rpm", "-qp"):
+            out = self.pkg_info
+        elif args[:2] == ("rpm", "-q"):
+            out = self.installed
+        return subprocess.CompletedProcess(args, 0, out, "")
+
+    def make(self, name, data=b"package"):
+        import hashlib
+        path = os.path.join(self.tmp, name)
+        with open(path, "wb") as fh:
+            fh.write(data)
+        return path, hashlib.sha256(data).hexdigest()
+
+    def test_installs_verified_copy(self):
+        path, sha = self.make("catamount-0.2-1.noarch.rpm")
+        self.assertEqual(helper.cmd_install_update({"path": path, "sha256": sha}),
+                         {"version": "0.2"})
+        dnf = [c for c in self.calls if c[0] == "dnf"]
+        self.assertEqual(len(dnf), 1)
+        self.assertTrue(dnf[0][-1].startswith(helper.UPDATE_DIR))  # our copy, not the user's
+        self.assertEqual(os.listdir(helper.UPDATE_DIR), [])  # cleaned up
+
+    def test_rejections(self):
+        path, sha = self.make("catamount-0.2-1.noarch.rpm")
+        for req in ({"path": path, "sha256": "0" * 64},
+                    {"path": path, "sha256": "nothex"},
+                    {"path": self.make("evil.rpm")[0], "sha256": sha},
+                    {"path": "relative.rpm", "sha256": sha}):
+            with self.assertRaises(helper.HelperError):
+                helper.cmd_install_update(req)
+        self.pkg_info = "otherpkg 0.2"
+        with self.assertRaises(helper.HelperError):
+            helper.cmd_install_update({"path": path, "sha256": sha})
+        self.pkg_info, self.installed = "catamount 0.2", "0.2"
+        with self.assertRaises(helper.HelperError):  # not newer
+            helper.cmd_install_update({"path": path, "sha256": sha})
+        self.assertFalse(any(c[0] == "dnf" for c in self.calls))
+
+
 if __name__ == "__main__":
     unittest.main()

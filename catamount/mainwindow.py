@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Main window: list of managed drives plus a read-only fstab view."""
 
+import os
+import sys
+
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import (
@@ -15,6 +18,8 @@ from catamount import deps
 from catamount.dialogs import ChangelogDialog, DriveDialog, PreferencesDialog, setting
 from catamount.helper_client import HelperClient
 from catamount.icons import tray_icon
+from catamount import updater
+from catamount.update_client import UpdateClient
 from catamount.model import STATE_LABELS, load_drives, load_fstab, refresh_states
 from catamount.theme import apply_theme
 
@@ -33,7 +38,11 @@ class MainWindow(QMainWindow):
         self._pending = ""
         self._prev_states = None
         self._quitting = False
+        self._after_helper = None
         self.tray = None
+        self.updates = UpdateClient(self)
+        self.updates.checked.connect(self._update_checked)
+        self.updates.downloaded.connect(self._update_downloaded)
 
         self.setWindowTitle(APP_NAME)
         self.setMinimumWidth(480)
@@ -46,6 +55,12 @@ class MainWindow(QMainWindow):
         self._apply_settings()
         self.refresh()
         self._check_deps()
+        self._refresh_version_label()
+        # Update check: shortly after start, then hourly (it only hits the network once a day).
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(self._auto_check)
+        self.update_timer.start(3600 * 1000)
+        QTimer.singleShot(8000, self._auto_check)
 
         if start_in_tray:
             self._wait_for_tray(tries=15)
@@ -113,6 +128,9 @@ class MainWindow(QMainWindow):
             a = sub.addAction("Disconnect", lambda d=d: self._run_on(d, "disconnect"))
             a.setEnabled(d.state != "disconnected" and not self.helper.busy)
         m.addSeparator()
+        if self.updates.update:
+            m.addAction("Update to %s available…" % self.updates.update["version"],
+                        lambda: (self.show_window(), self.show_changelog()))
         a = m.addAction("Map network drive…", lambda: (self.show_window(), self.add_drive()))
         a.setEnabled(not self.helper.busy)
         m.addSeparator()
@@ -216,6 +234,8 @@ class MainWindow(QMainWindow):
         self.act_quit.triggered.connect(self.quit)
         self.act_changelog = QAction("&Changelog", self)
         self.act_changelog.triggered.connect(self.show_changelog)
+        self.act_check_updates = QAction("Check for &updates…", self)
+        self.act_check_updates.triggered.connect(lambda: self.updates.check(manual=True))
         self.act_about = QAction("&About %s" % APP_NAME, self)
         self.act_about.triggered.connect(self.about)
         self.drive_actions = (self.act_connect, self.act_disconnect, self.act_edit,
@@ -236,6 +256,8 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_refresh)
         m = mb.addMenu("&Help")
         m.addAction(self.act_changelog)
+        m.addAction(self.act_check_updates)
+        m.addSeparator()
         m.addAction(self.act_about)
 
         tb = QToolBar("Main")
@@ -308,8 +330,6 @@ class MainWindow(QMainWindow):
 
         self.version_label = QLabel()
         self.version_label.setTextFormat(Qt.RichText)
-        self.version_label.setText('<a href="changelog">v%s</a>' % __version__)
-        self.version_label.setToolTip("Show changelog")
         self.version_label.linkActivated.connect(lambda _l: self.show_changelog())
         self.statusBar().addPermanentWidget(self.version_label)
 
@@ -381,8 +401,14 @@ class MainWindow(QMainWindow):
         self.helper.run(command, payload)
         self._update_actions()
 
-    def _helper_done(self, ok, error, _reply):
+    def _helper_done(self, ok, error, reply):
         label, self._pending = self._pending, ""
+        after, self._after_helper = self._after_helper, None
+        if ok and after:
+            self.statusBar().showMessage(label + " — done.", 5000)
+            after(reply)
+            self.refresh()
+            return
         if ok:
             self.statusBar().showMessage(label + " — done.", 5000)
         else:
@@ -473,7 +499,87 @@ class MainWindow(QMainWindow):
             self._apply_settings()
 
     def show_changelog(self):
-        ChangelogDialog(self).exec()
+        upd = self.updates.update
+        can_install = bool(upd and self.updates.kind
+                           and updater.pick_assets(upd, self.updates.kind))
+        dlg = ChangelogDialog(self, update=upd, can_install=can_install,
+                              error=self.updates.last_error)
+        result = dlg.exec()
+        if result == ChangelogDialog.INSTALL:
+            self.install_update()
+        elif result == ChangelogDialog.DOWNLOAD_PAGE:
+            QDesktopServices.openUrl(QUrl(upd.get("url") or updater.RELEASES_URL))
+
+    # -- updates ----------------------------------------------------------
+
+    def _auto_check(self):
+        if setting(self.settings, "auto_check_updates"):
+            self.updates.check()
+
+    def _refresh_version_label(self):
+        upd = self.updates.update
+        if upd:
+            self.version_label.setText(
+                '<a href="changelog" style="text-decoration:none">v%s '
+                '<span style="color:#16A34A">●</span></a>' % __version__)
+            self.version_label.setToolTip("Update available: %s — click for details"
+                                          % upd["version"])
+        else:
+            self.version_label.setText('<a href="changelog">v%s</a>' % __version__)
+            self.version_label.setToolTip("Show changelog")
+
+    def _update_checked(self, manual):
+        self._refresh_version_label()
+        upd = self.updates.update
+        if not manual:
+            if upd and self.tray is not None and \
+                    self.settings.value("notified_version", "") != upd["version"]:
+                self.settings.setValue("notified_version", upd["version"])
+                self.tray.showMessage(APP_NAME, "CataMount %s is available." % upd["version"],
+                                      QSystemTrayIcon.Information, 8000)
+            return
+        if upd:
+            self.show_changelog()
+        elif self.updates.last_error:
+            QMessageBox.warning(self, APP_NAME, self.updates.last_error)
+        else:
+            QMessageBox.information(self, APP_NAME, "CataMount %s is the latest version."
+                                    % __version__)
+
+    def install_update(self):
+        if self.helper.busy or self.updates.busy:
+            return
+        self.statusBar().showMessage("Downloading update…")
+        self.act_check_updates.setEnabled(False)
+        self.updates.download()
+
+    def _update_downloaded(self, ok, path_or_error, sha256):
+        self.act_check_updates.setEnabled(True)
+        if not ok:
+            self.statusBar().showMessage("Update download failed.", 5000)
+            QMessageBox.warning(self, APP_NAME, path_or_error)
+            return
+        version = self.updates.update["version"]
+        self._after_helper = lambda _reply: self._update_installed(version)
+        self._run("install-update", {"path": path_or_error, "sha256": sha256},
+                  "Installing CataMount %s" % version)
+
+    def _update_installed(self, version):
+        answer = QMessageBox.question(
+            self, APP_NAME, "CataMount %s is installed. Restart CataMount now to use it?" % version)
+        if answer == QMessageBox.Yes:
+            self.restart()
+
+    def restart(self):
+        from PySide6.QtCore import QProcess
+        from catamount.app import release_instance_lock
+        release_instance_lock()
+        launcher = "/usr/bin/catamount"
+        if os.path.exists(launcher):
+            QProcess.startDetached(launcher, [])
+        else:
+            QProcess.startDetached(sys.executable, ["-m", "catamount"])
+        self.quit()
 
     def about(self):
         QMessageBox.about(

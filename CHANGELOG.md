@@ -16,5 +16,6 @@ First release.
 - Only one copy runs at a time; opening it again brings the window forward.
 - Warns at startup if a needed system tool (cifs-utils, nfs-utils, pkexec) is missing and shows how to install it.
 - New app icon: a cat-eared network folder.
+- Automatic updates from GitHub Releases (checked at most once a day). A green dot on the version number means an update is ready; the changelog window shows its notes and installs it after checking its SHA-256 checksum.
 - Light, dark and follow-system themes.
 - RPM (Fedora) and DEB (Debian 13+, Ubuntu 26.04+) packages. All dependencies are installed automatically.
