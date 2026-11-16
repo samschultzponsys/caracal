@@ -372,3 +372,72 @@ def suggest_mount_point(root, addr, taken=()):
         candidate = "%s/%s-%d" % (root, leaf, n)
         n += 1
     return candidate
+
+
+# --------------------------------------------------------------------------
+# Disk space
+# --------------------------------------------------------------------------
+
+def disk_usage(path):
+    """(used_bytes, total_bytes) for a mounted path. May block on a hung server,
+    so call it from a worker thread only, and only for connected drives
+    (calling it on an automount point would trigger the mount)."""
+    st = os.statvfs(path)
+    total = st.f_blocks * st.f_frsize
+    free = st.f_bavail * st.f_frsize
+    return total - free, total
+
+
+def format_size(n):
+    for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
+        if n < 1000 or unit == "PB":
+            return ("%d %s" % (n, unit)) if unit == "B" else ("%.1f %s" % (n, unit)).replace(".0 ", " ")
+        n /= 1000.0
+    return ""
+
+
+def format_usage(used, total):
+    if not total:
+        return ""
+    return "%s free of %s" % (format_size(total - used), format_size(total))
+
+
+# --------------------------------------------------------------------------
+# fstab -> CataMount drive template (migration aid; fstab itself is never edited)
+# --------------------------------------------------------------------------
+
+def fstab_to_template(entry, mount_root="/mnt", taken=()):
+    kind = "smb" if entry.kind == "SMB" else "nfs"
+    addr = parse_address(entry.source, kind)
+    opts = {}
+    for opt in entry.options.split(","):
+        key, _, value = opt.partition("=")
+        opts[key.strip().lower()] = value.strip()
+    known = {"ro", "rw", "vers", "nfsvers", "username", "user", "domain", "dom", "workgroup",
+             "guest", "sec", "seal", "credentials", "cred", "password", "pass", "uid", "gid",
+             "defaults", "_netdev", "nofail", "auto", "noauto", "user_xattr", "iocharset"}
+    extra = [o for o in entry.options.split(",")
+             if o and o.split("=", 1)[0].lower() not in known and not o.startswith("x-systemd")]
+    spec = {
+        "name": "%s on %s" % (([p for p in addr.share.split("/") if p] or [addr.share])[-1],
+                              addr.server),
+        "type": kind, "server": addr.server, "share": addr.share,
+        "mount_point": suggest_mount_point(mount_root, addr, set(taken) | {entry.target}),
+        "read_only": "ro" in opts,
+        "automount": True, "start_at_boot": True,
+        "extra_options": ",".join(extra),
+    }
+    if kind == "smb":
+        version = opts.get("vers", "")
+        spec["smb"] = {
+            "username": opts.get("username") or opts.get("user") or addr.username,
+            "domain": opts.get("domain") or opts.get("dom") or opts.get("workgroup") or addr.domain,
+            "guest": "guest" in opts,
+            "kerberos": opts.get("sec", "").startswith("krb5"),
+            "seal": "seal" in opts,
+            "version": version if version in ("3.1.1", "3.02", "3.0", "2.1", "2.0", "1.0") else "",
+        }
+    else:
+        version = opts.get("vers") or opts.get("nfsvers") or ("4" if entry.fstype == "nfs4" else "")
+        spec["nfs"] = {"version": version if version in ("4.2", "4.1", "4", "3") else ""}
+    return spec

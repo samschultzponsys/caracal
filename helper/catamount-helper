@@ -571,20 +571,54 @@ def cmd_apply(req):
     return {"units": sorted(new_units)}
 
 
-def cmd_connect(req):
-    _, names = find_drive(req)
+def _connect_one(names):
     primary = primary_unit(names)
     if primary.endswith(".automount"):
         systemctl("start", primary)
     mount = [n for n in names if n.endswith(".mount")][0]
     start_unit(mount)
-    return {}
+
+
+def _for_each(req, action):
+    """Run action(names) for req["id"], or for every id in req["ids"] (batch).
+
+    A batch never stops at the first failure; it reports per-drive errors instead.
+    """
+    if "ids" not in req:
+        _, names = find_drive(req)
+        action(names)
+        return {}
+    ids = req.get("ids")
+    if not isinstance(ids, list) or len(ids) > 200:
+        raise HelperError("Invalid request.")
+    failed = {}
+    for drive_id in ids:
+        try:
+            _, names = find_drive({"id": drive_id})
+            action(names)
+        except HelperError as exc:
+            failed[str(drive_id)] = str(exc)
+    if failed and len(failed) == len(ids):
+        raise HelperError("\n\n".join(failed.values()))
+    return {"failed": failed}
+
+
+def cmd_connect(req):
+    return _for_each(req, _connect_one)
 
 
 def cmd_disconnect(req):
+    return _for_each(req, stop_units)
+
+
+def cmd_log(req):
+    """Recent journal lines for a drive, for users who can't read the system journal."""
     _, names = find_drive(req)
-    stop_units(names)
-    return {}
+    args = ["journalctl", "--no-pager", "-o", "short-iso", "-n", "200"]
+    for n in names:
+        args += ["-u", n]
+    proc = run(*args, check=False)
+    return {"log": (proc.stdout or proc.stderr)[-60000:]}
 
 
 def cmd_remove(req):
@@ -705,6 +739,7 @@ COMMANDS = {
     "connect": cmd_connect,
     "disconnect": cmd_disconnect,
     "remove": cmd_remove,
+    "log": cmd_log,
     "install-update": cmd_install_update,
 }
 

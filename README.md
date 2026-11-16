@@ -20,6 +20,14 @@ read-only.
   Caja, Dolphin).
 - Export your drives to a file and import them on another computer (passwords
   are never exported).
+- Free space for connected drives, Connect all / Disconnect all, duplicate a
+  drive, change a saved password (offered automatically when a connect fails on a
+  bad password), and a per-drive log viewer for troubleshooting.
+- Copy an existing `/etc/fstab` network mount into a CataMount drive (the fstab
+  line itself is left for you to remove).
+- Desktop notifications when a drive fails, drops, or comes back, even without a tray.
+- Command line: `catamount --list`, `--connect`, `--disconnect`, `--connect-all`,
+  `--disconnect-all`.
 - Connect, disconnect, edit, remove and open drives; status refreshes live.
 - Lives in the system tray: closing the window keeps it running, the tray menu
   connects/disconnects/opens drives, and you get a notification if a drive fails.
@@ -85,6 +93,23 @@ sudo apt install gnome-shell-extension-appindicator
 ```
 
 Without a tray, CataMount works normally and closing the window quits it.
+
+## Command line
+
+```bash
+catamount --list
+```
+
+```bash
+catamount --connect "Media on nas"
+```
+
+```bash
+catamount --disconnect-all
+```
+
+A drive can be named by its name, its local folder, or its id. Connect and
+disconnect ask for your admin password through polkit, just like the window does.
 
 ## Kerberos
 

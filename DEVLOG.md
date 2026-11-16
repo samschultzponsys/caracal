@@ -2,6 +2,33 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-16 — Everyday features batch (still v0.1, unreleased)
+
+Sam: as many features as possible in the first build before release.
+
+### Done
+- Helper: `connect`/`disconnect` accept `ids` (batch, per-drive `failed` map, error only if
+  all fail). New `log` command (journalctl -u for the drive's units, 200 lines) for users
+  outside systemd-journal/wheel.
+- Space column: `disk_usage` (statvfs) runs in a thread, only for drives in state
+  "connected" (statvfs on an automount point would trigger it), with an in-flight guard
+  so a hung NFS server can't pile up threads.
+- Change password dialog (re-applies the same spec with a new password). The failure
+  dialog offers "Update password…" when the error looks like an auth failure (error(13),
+  Permission denied, LOGON_FAILURE).
+- Duplicate (template with `-2`… mount point), Show log (user journalctl first, then an
+  admin button that calls the helper), Connect/Disconnect all (menu + tray),
+  `notify()` (tray, else notify-send), "connected again" notification, summary label,
+  window geometry and column state saved in QSettings.
+- fstab tab: rows are selectable; "Copy as CataMount drive…" uses
+  `model.fstab_to_template` (maps vers/ro/username/domain/guest/sec=krb5/seal, keeps
+  unknown options as extra options, suggests a new mount point).
+- `cli.py`: --list/--connect/--disconnect/--connect-all/--disconnect-all (pkexec helper,
+  no Qt). Also `widgets.py` (password reveal action).
+- Bugs found by smoke tests and fixed: the tray only appeared ~5 s after a normal start
+  (now created right after show); LogDialog used the invalid `textCursor().End`.
+- Tests: 40.
+
 ## 2026-11-16 — Browse, test, Kerberos/seal, sidebar, export/import (still v0.1, unreleased)
 
 Sam: "push all releases per CLAUDE.md", but keep building features before cutting a build.

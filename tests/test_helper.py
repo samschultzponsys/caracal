@@ -233,6 +233,14 @@ class ApplyTests(unittest.TestCase):
         with self.assertRaises(helper.HelperError):
             helper.cmd_apply({"spec": sp, "password": "x", "connect": False})
 
+    def test_batch_connect_reports_per_drive(self):
+        helper.cmd_apply({"spec": self.spec(), "password": "x", "connect": False})
+        res = helper.cmd_disconnect({"ids": [DRIVE_ID, "11111111-2222-3333-4444-555555555555"]})
+        self.assertEqual(list(res["failed"]), ["11111111-2222-3333-4444-555555555555"])
+        with self.assertRaises(helper.HelperError):
+            helper.cmd_connect({"ids": ["11111111-2222-3333-4444-555555555555"]})
+        self.assertIn("log", helper.cmd_log({"id": DRIVE_ID}))
+
     def test_missing_mount_helper(self):
         with mock.patch.object(helper.os, "access", return_value=False):
             with self.assertRaises(helper.HelperError) as ctx:

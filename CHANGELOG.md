@@ -14,6 +14,13 @@ First release.
 - SMB sign-in with a password, as a guest, or with a Kerberos ticket; optional SMB 3 encryption.
 - Optional file manager sidebar entry for each drive (Files, Nemo, Thunar, Caja, Dolphin).
 - Export drives to a file and import them on another computer (passwords are never exported).
+- Free space column for connected drives, and a connected/failed summary in the status bar.
+- Connect all / Disconnect all (one password prompt), from the Drive menu, the tray, or the command line.
+- Duplicate a drive, change a saved SMB password (offered when a connect fails on a bad password), and view a drive's log.
+- Copy an /etc/fstab network mount into a CataMount drive.
+- Notifications when a drive fails, drops or reconnects, also on desktops without a tray.
+- Show-password button in password fields; the window remembers its size and column widths.
+- Command line control: `--list`, `--connect`, `--disconnect`, `--connect-all`, `--disconnect-all`.
 - Connect, disconnect, edit, remove and open drives from the main window; status refreshes automatically.
 - Read-only view of existing network mounts in `/etc/fstab` (CataMount never edits it).
 - System tray: close to tray, tray menu to connect/disconnect/open drives, notifications when a drive fails or drops, optional start at login in the tray, and a choice of color, white or dark tray icon.

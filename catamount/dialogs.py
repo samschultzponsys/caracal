@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from catamount import APP_NAME, __version__
 from catamount import autostart, deps, discovery
 from catamount.background import run_async
+from catamount.widgets import add_reveal_action
 from catamount.icons import TRAY_STYLES
 from catamount.model import format_remote, new_drive_id, parse_address, suggest_mount_point
 from catamount.theme import THEMES
@@ -144,6 +145,7 @@ class DriveDialog(QDialog):
         self.username = QLineEdit(smb.get("username", ""))
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.Password)
+        add_reveal_action(self.password)
         if self._had_password:
             self.password.setPlaceholderText("(unchanged)")
         self.domain = QLineEdit(smb.get("domain", ""))

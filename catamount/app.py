@@ -8,13 +8,6 @@ from PySide6.QtWidgets import QApplication
 
 from catamount import APP_ID, APP_NAME, __version__
 
-USAGE = """Usage: catamount [--tray] [--version]
-
-  --tray      Start hidden in the system tray (used when starting at login).
-  --version   Print the version and exit.
-"""
-
-
 _server = None
 
 
@@ -46,9 +39,12 @@ def main(argv=None):
     if "--version" in argv:
         print("%s %s" % (APP_NAME, __version__))
         return 0
+    from catamount import cli
     if "--help" in argv or "-h" in argv:
-        print(USAGE)
+        print(cli.USAGE)
         return 0
+    if cli.wants_cli(argv):
+        return cli.main(argv)
     start_in_tray = "--tray" in argv
 
     QApplication.setApplicationName("catamount")

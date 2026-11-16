@@ -71,5 +71,26 @@ class FstabTests(unittest.TestCase):
                           ("nas:/srv", "/srv/nfs", "NFS")])
 
 
+class ExtraModelTests(unittest.TestCase):
+    def test_sizes(self):
+        self.assertEqual(model.format_size(512), "512 B")
+        self.assertEqual(model.format_size(1_500_000_000), "1.5 GB")
+        self.assertEqual(model.format_size(2_000_000_000_000), "2 TB")
+        self.assertEqual(model.format_usage(1_000_000_000, 4_000_000_000), "3 GB free of 4 GB")
+
+    def test_fstab_template(self):
+        e = model.FstabEntry("//nas/media", "/mnt/media", "cifs",
+                             "credentials=/root/.c,vers=3.0,ro,username=sam,noperm,_netdev")
+        t = model.fstab_to_template(e)
+        self.assertEqual((t["type"], t["server"], t["share"]), ("smb", "nas", "media"))
+        self.assertNotEqual(t["mount_point"], "/mnt/media")
+        self.assertTrue(t["read_only"])
+        self.assertEqual(t["smb"]["username"], "sam")
+        self.assertEqual(t["smb"]["version"], "3.0")
+        self.assertEqual(t["extra_options"], "noperm")
+        n = model.fstab_to_template(model.FstabEntry("srv:/data", "/data", "nfs4", "defaults"))
+        self.assertEqual((n["type"], n["share"], n["nfs"]["version"]), ("nfs", "/data", "4"))
+
+
 if __name__ == "__main__":
     unittest.main()
