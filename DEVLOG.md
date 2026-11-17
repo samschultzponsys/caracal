@@ -9,7 +9,10 @@ Working notes for the next session. Newest first.
 - Built the RPM locally with Ubuntu's rpmbuild (`--nodeps`, `_metainfodir` defined) to check
   the spec before CI: file list, Requires and Recommends look right.
 - Ran the app from the extracted DEB layout (launcher, --list, GUI, icons, changelog): OK.
-- Tagged v0.1 (Claude pushes release tags per CLAUDE.md; the workflow creates the Release).
+- Releasing: this cloud session's git proxy drops tag pushes (branch pushes work). With
+  Sam's OK, the Release workflow got a `publish` input for manual runs: it creates
+  `v<__version__>` on the run's commit via `gh release create --target`. Claude starts it
+  through the GitHub Actions API. Tag pushes still work too.
 
 ## 2026-11-16 — Everyday features batch
 

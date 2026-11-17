@@ -208,9 +208,11 @@ a test build only.
 1. Bump the version in `catamount/__init__.py`, `packaging/catamount.spec`,
    `debian/changelog`, `data/com.spazcat.CataMount.metainfo.xml`, and add a
    `CHANGELOG.md` section. CI checks that they all match.
-2. Push a `vX.Y` tag. The workflow builds the RPM and DEB, creates the GitHub
-   Release with the changelog section as notes, and attaches the packages and
-   `SHA256SUMS`.
+2. Push a `vX.Y` tag, or run the **Release** workflow manually with
+   **publish** ticked (it creates the tag from the app version). The workflow
+   builds the RPM and DEB, creates the GitHub Release with the changelog section
+   as notes, and attaches the packages and `SHA256SUMS`. A manual run without
+   **publish** is a test build only.
 
 ## License
 

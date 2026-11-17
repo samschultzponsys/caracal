@@ -1,12 +1,18 @@
 # Builds the RPM and DEB.
 # - Tag push (v0.1, v1.2, ...): builds and publishes to GitHub Releases.
-# - Manual run: test build only, nothing is published or stored.
+# - Manual run: test build only, unless "publish" is ticked: then it creates the
+#   vX.Y tag (from catamount/__init__.py) on the commit it ran on, and publishes.
 name: Release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create the vX.Y tag and publish the release"
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -25,13 +31,23 @@ jobs:
       - name: Run tests
         run: python3 -m unittest -v
 
-      - name: Check version numbers
+      - name: Work out the release tag
+        id: tag
         run: |
+          V=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' catamount/__init__.py)
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            packaging/check-version.sh "${GITHUB_REF_NAME}"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.publish }}" = "true" ]; then
+            echo "tag=v$V" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
           else
-            packaging/check-version.sh
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Check version numbers
+        run: packaging/check-version.sh ${{ steps.tag.outputs.tag }}
 
       - name: Cache package downloads
         uses: actions/cache@v4
@@ -59,14 +75,15 @@ jobs:
           cd dist && sha256sum * | tee SHA256SUMS
 
       - name: Publish release
-        if: github.ref_type == 'tag'
+        if: steps.tag.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           V="${TAG#v}"
           awk -v v="$V" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "CataMount $V" --notes-file notes.md
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "CataMount $V" \
+              --notes-file notes.md
           fi
           gh release upload "$TAG" dist/* --clobber
