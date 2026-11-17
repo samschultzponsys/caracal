@@ -38,6 +38,7 @@ DEFAULTS = {
     "notify_failures": True,
     "tray_hint_shown": False,
     "tray_icon_style": "color",
+    "tray_show_status": True,
     "auto_check_updates": True,
     "default_bookmark": True,
 }
@@ -458,9 +459,12 @@ class PreferencesDialog(QDialog):
         self.login = QCheckBox("Start CataMount in the tray when I log in")
         self.login.setChecked(autostart.is_enabled())
         self.tray_style = _combo(TRAY_STYLES, setting(settings, "tray_icon_style"))
+        self.tray_status = QCheckBox("Tray icon lights up when a drive is connected")
+        self.tray_status.setChecked(setting(settings, "tray_show_status"))
         for w in (self.tray_enabled, self.close_to_tray, self.notify, self.login):
             tform.addRow(w)
         tform.addRow("Tray icon:", self.tray_style)
+        tform.addRow(self.tray_status)
         if not QSystemTrayIcon.isSystemTrayAvailable():
             status = deps.appindicator_status()
             text = "No system tray was found, so closing the window quits CataMount."
@@ -497,7 +501,7 @@ class PreferencesDialog(QDialog):
                                 "Use the Extensions app instead.")
 
     def _tray_toggled(self, on):
-        for w in (self.close_to_tray, self.notify, self.tray_style):
+        for w in (self.close_to_tray, self.notify, self.tray_style, self.tray_status):
             w.setEnabled(on)
 
     def _save(self):
@@ -517,6 +521,7 @@ class PreferencesDialog(QDialog):
         s.setValue("close_to_tray", self.close_to_tray.isChecked())
         s.setValue("notify_failures", self.notify.isChecked())
         s.setValue("tray_icon_style", self.tray_style.currentData())
+        s.setValue("tray_show_status", self.tray_status.isChecked())
         s.setValue("auto_check_updates", self.auto_updates.isChecked())
         s.sync()
         try:

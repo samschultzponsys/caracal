@@ -2,6 +2,10 @@
 
 All notable user-facing changes to CataMount.
 
+## [0.2] - 2026-11-17
+
+- The tray icon now shows whether you're connected: it's grey when no drive is connected and lights up green (glowing network) as soon as one is. A red dot still means a drive failed. You can turn this off in Preferences → System tray.
+
 ## [0.1] - 2026-11-16
 
 First release.

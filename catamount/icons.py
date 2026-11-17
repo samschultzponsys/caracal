@@ -38,28 +38,45 @@ def app_icon():
     return icon
 
 
-def tray_icon(style="color", state=None):
-    """Tray icon in the chosen style, with an optional status badge."""
+def tray_icon(style="color", state=None, lit=True):
+    """Tray icon in the chosen style.
+
+    lit=False (no drive connected) shows the icon dimmed: the color icon's network
+    nodes go dark, the white/dark icons fade. state="failed" adds a red badge.
+    """
     base = QIcon()
     if style in ("light", "dark"):
         p = _find("tray", "tray-%s.svg" % style)
         if p:
             base = QIcon(p)
+    elif not lit:
+        p = _find("tray", "tray-color-idle.svg")
+        if p:
+            base = QIcon(p)
     if base.isNull():
         base = app_icon()
-    if state not in BADGE_COLORS:
+    fade = not lit and style in ("light", "dark")
+    badge = BADGE_COLORS.get(state)
+    if not fade and not badge:
         return base
     icon = QIcon()
     for size in (16, 22, 24, 32, 48, 64):
-        pm = QPixmap(base.pixmap(size, size))
-        if pm.isNull():
+        src = base.pixmap(size, size)
+        if src.isNull():
             continue
+        pm = QPixmap(src.size())
+        pm.setDevicePixelRatio(src.devicePixelRatio())
+        pm.fill(QColor(0, 0, 0, 0))
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
-        r = max(3.0, size * 0.2)
-        p.setPen(QPen(QColor("#FFFFFF"), max(1.0, size / 24)))
-        p.setBrush(QColor(BADGE_COLORS[state]))
-        p.drawEllipse(QRectF(size - 2 * r - 0.5, size - 2 * r - 0.5, 2 * r, 2 * r))
+        p.setOpacity(0.4 if fade else 1.0)
+        p.drawPixmap(0, 0, src)
+        p.setOpacity(1.0)
+        if badge:
+            r = max(3.0, size * 0.2)
+            p.setPen(QPen(QColor("#FFFFFF"), max(1.0, size / 24)))
+            p.setBrush(QColor(badge))
+            p.drawEllipse(QRectF(size - 2 * r - 0.5, size - 2 * r - 0.5, 2 * r, 2 * r))
         p.end()
         icon.addPixmap(pm)
     return icon if not icon.isNull() else base

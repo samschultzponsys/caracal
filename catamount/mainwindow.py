@@ -222,8 +222,9 @@ class MainWindow(QMainWindow):
         if failed:
             tip += "\nFailed: " + ", ".join(d.name for d in failed)
         self.tray.setToolTip(tip)
+        lit = connected > 0 or not setting(self.settings, "tray_show_status")
         self.tray.setIcon(tray_icon(setting(self.settings, "tray_icon_style"),
-                                     "failed" if failed else None))
+                                    "failed" if failed else None, lit))
 
     def notify(self, message, warning=False, timeout=6000):
         """Desktop notification through the tray, or notify-send when there is no tray."""
@@ -488,6 +489,7 @@ class MainWindow(QMainWindow):
         self.timer.start(setting(self.settings, "refresh_seconds") * 1000)
         if self.tray is not None or self.isVisible():
             self._update_tray()
+        self._update_tray_status()
 
     # -- data -------------------------------------------------------------
 

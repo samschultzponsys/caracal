@@ -2,6 +2,18 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-17 — v0.2: tray icon shows connection state
+
+- Sam: 0.1 "worked well", but the tray icon didn't light up when a connection was made
+  (before, only failures changed it).
+- `tray_icon(style, state, lit)`: color style uses `data/icons/tray/tray-color-idle.svg`
+  (grey tile, unlit nodes) when no drive is connected and the normal glowing icon when any
+  is; white/dark styles fade to 40% opacity when unlit. Red badge for failed as before.
+  "ready" (automount armed, not mounted) counts as unlit. Pref `tray_show_status`
+  (default on). Prefs changes refresh the tray icon right away.
+- Released 0.2 through the workflow `publish` input. This is also the first end-to-end
+  auto-update test (0.1 → 0.2) for Sam.
+
 ## 2026-11-16 — v0.1 release
 
 - Published 2026-11-17: https://github.com/samschultzponsys/catamount/releases/tag/v0.1
