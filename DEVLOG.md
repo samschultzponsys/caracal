@@ -4,6 +4,12 @@ Working notes for the next session. Newest first.
 
 ## 2026-11-16 — v0.1 release
 
+- Published 2026-11-17: https://github.com/samschultzponsys/catamount/releases/tag/v0.1
+  (run 44152213376). The first run failed: Debian's dpkg-buildpackage needs
+  `build-essential`; now installed in build-deb.sh. Checked that the release assets
+  verify against SHA256SUMS.
+- Next: Sam installs and tests on real hardware; then fixes go into 0.2.
+
 - Added NFS soft mount option (`nfs.soft` → soft,timeo=150,retrans=3) and SMB `all_users`
   (file_mode/dir_mode 0777).
 - Built the RPM locally with Ubuntu's rpmbuild (`--nodeps`, `_metainfodir` defined) to check
