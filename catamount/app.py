@@ -49,7 +49,8 @@ def main(argv=None):
     if cli.wants_cli(argv):
         return cli.main(argv)
     search = cli.search_window_args(argv)   # (query, folder) or None
-    start_in_tray = "--tray" in argv
+    explore = cli.explorer_args(argv)       # path ("" = default start) or None
+    start_in_tray = "--tray" in argv or "--explorer-service" in argv
 
     QApplication.setApplicationName("catamount")
     QApplication.setApplicationDisplayName(APP_NAME)
@@ -59,7 +60,9 @@ def main(argv=None):
     app.setQuitOnLastWindowClosed(False)  # the tray keeps us alive; MainWindow decides
 
     # Single instance: a second launch just brings the first window forward.
-    if search is not None:
+    if explore is not None:
+        message = "explore\t%s" % explore
+    elif search is not None:
         message = "search\t%s\t%s" % (search[1], search[0])
     else:
         message = "tray" if start_in_tray else "show"
@@ -74,18 +77,29 @@ def main(argv=None):
     from catamount.icons import app_icon
     from catamount.mainwindow import MainWindow
     app.setWindowIcon(app_icon())
-    win = MainWindow(start_in_tray=start_in_tray, search=search)
+    from catamount.dialogs import setting
+    from PySide6.QtCore import QSettings, QTimer
+    explorer_start = explore is not None or (
+        not start_in_tray and search is None and
+        setting(QSettings("catamount", "catamount"), "explorer_mode"))
+    win = MainWindow(start_in_tray=start_in_tray or explorer_start, search=search)
+    if explorer_start:
+        QTimer.singleShot(0, lambda: win.open_explorer(explore or None))
+    from catamount.explorer import fm1
+    fm1.maybe_serve(win)
 
     def on_connection():
         while server.hasPendingConnections():
             conn = server.nextPendingConnection()
             conn.waitForReadyRead(500)
             msg = bytes(conn.readAll()).decode(errors="replace")
-            if msg.startswith("search\t"):
+            if msg.startswith("explore\t"):
+                win.open_explorer(msg.split("\t", 1)[1] or None)
+            elif msg.startswith("search\t"):
                 _, folder, query = (msg.split("\t", 2) + ["", ""])[:3]
                 win.open_search(query, folder)
             elif msg.strip() != "tray":
-                win.show_window()
+                win.show_default()
             conn.disconnectFromServer()
             conn.deleteLater()
 

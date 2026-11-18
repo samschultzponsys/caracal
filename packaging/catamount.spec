@@ -22,6 +22,11 @@ Requires:       nfs-utils
 Recommends:     python3-gobject
 Recommends:     poppler-utils
 Suggests:       nautilus-python
+# Explorer: SFTP/SCP and FTP/WebDAV locations, USB drives, default file manager
+Recommends:     fuse-sshfs
+Recommends:     rclone
+Recommends:     udisks2
+Recommends:     xdg-utils
 # Resolve .local (mDNS) server names
 Recommends:     nss-mdns
 # Browse the network and test connections (optional)
@@ -51,6 +56,7 @@ make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 %{_datadir}/catamount/
 %{_datadir}/polkit-1/actions/com.spazcat.CataMount.policy
 %{_datadir}/applications/com.spazcat.CataMount.desktop
+%{_datadir}/applications/com.spazcat.CataMount.Explorer.desktop
 %{_metainfodir}/com.spazcat.CataMount.metainfo.xml
 %{_datadir}/icons/hicolor/scalable/apps/com.spazcat.CataMount.svg
 %{_datadir}/icons/hicolor/symbolic/apps/com.spazcat.CataMount-symbolic.svg

@@ -109,6 +109,8 @@ class MainWindow(QMainWindow):
         self._pending_drive = None
         self._usage = {}          # drive id -> (used, total)
         self._usage_inflight = set()
+        self.drive_listeners = []   # Explorer windows refresh their network items
+        self.explorers = []
         self.tray = None
         self.index = IndexManager(self.settings, self)
         self.search_window = None
@@ -150,7 +152,8 @@ class MainWindow(QMainWindow):
         if self.tray is not None:
             return
         if tries <= 0:
-            if self.search_window is None or not self.search_window.isVisible():
+            if (self.search_window is None or not self.search_window.isVisible()) \
+                    and not self.explorers:
                 self.showMinimized()
             return
         if setting(self.settings, "tray_enabled") and QSystemTrayIcon.isSystemTrayAvailable():
@@ -181,7 +184,9 @@ class MainWindow(QMainWindow):
 
     def _tray_activated(self, reason):
         if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
-            if self.isVisible() and not self.isMinimized() and self.isActiveWindow():
+            if setting(self.settings, "explorer_mode"):
+                self.open_explorer()
+            elif self.isVisible() and not self.isMinimized() and self.isActiveWindow():
                 self.hide()
             else:
                 self.show_window()
@@ -192,6 +197,8 @@ class MainWindow(QMainWindow):
         shown = self.isVisible() and not self.isMinimized()
         m.addAction("Hide %s" % APP_NAME if shown else "Show %s" % APP_NAME,
                     self.hide if shown else self.show_window)
+        m.addAction(QIcon.fromTheme("system-file-manager", QIcon.fromTheme("folder")),
+                    "File Explorer", lambda: self.open_explorer())
         m.addAction(QIcon.fromTheme("system-search"), "Search network drives…",
                     lambda: self.open_search())
         m.addSeparator()
@@ -582,6 +589,11 @@ class MainWindow(QMainWindow):
         if self.tray is None and self.isVisible() and setting(self.settings, "tray_enabled"):
             self._update_tray()  # e.g. the tray host appeared after we started
         self._update_tray_status()
+        for fn in list(self.drive_listeners):
+            try:
+                fn()
+            except RuntimeError:          # window already deleted
+                self.drive_listeners.remove(fn)
 
     def _update_actions(self):
         d = self.selected()
@@ -654,8 +666,70 @@ class MainWindow(QMainWindow):
     def _taken(self):
         return [d.mount_point for d in self.drives]
 
-    def add_drive(self):
-        dlg = DriveDialog(self.settings, taken=self._taken(), parent=self)
+    # -- Explorer integration -----------------------------------------------
+
+    def open_explorer(self, path=None):
+        from catamount.explorer.window import ExplorerWindow
+        win = ExplorerWindow(self, path)
+        self.explorers.append(win)
+        win.destroyed.connect(lambda *_: self.explorers.remove(win) if win in self.explorers else None)
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        return win
+
+    def show_default(self):
+        """What a plain launch does: Explorer in explorer mode, else the drives window."""
+        if setting(self.settings, "explorer_mode"):
+            self.open_explorer()
+        else:
+            self.show_window()
+
+    def refresh_soon(self):
+        QTimer.singleShot(600, self.refresh)
+
+    def apply_explorer_settings(self):
+        from catamount.explorer import theme as xtheme
+        xtheme.reload()
+        for w in list(self.explorers):
+            w.apply_appearance()
+            w.apply_layout()
+            w._apply_hidden()
+
+    def browse_and_add(self):
+        from catamount.browse import BrowseDialog
+        from catamount.model import format_remote
+        dlg = BrowseDialog(parent=self.explorers[-1] if self.explorers else self)
+        if dlg.exec() and dlg.result_share():
+            kind, server, share = dlg.result_share()
+            self.add_drive(format_remote(kind, server, share), kind)
+
+    def edit_drive_obj(self, d):
+        self._select_drive(d)
+        self.edit_drive()
+
+    def remove_drive_obj(self, d):
+        self._select_drive(d)
+        self.remove_drive()
+
+    def _select_drive(self, d):
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            item.setSelected(item.data(0, Qt.UserRole) == d.id)
+
+    def add_drive(self, address="", kind=None):
+        template = None
+        if address or kind:
+            from catamount.model import parse_address
+            addr = parse_address(address, kind or "smb") if address else None
+            template = {"type": (addr.kind if addr and addr.kind else kind) or "smb"}
+            if addr and addr.valid:
+                template.update(server=addr.server, share=addr.share, name="%s on %s" % (
+                    ([p for p in addr.share.split("/") if p] or [addr.share])[-1], addr.server))
+                if addr.kind == "smb":
+                    template["smb"] = {"username": addr.username, "domain": addr.domain}
+        parent = self.explorers[-1] if self.explorers and not self.isVisible() else self
+        dlg = DriveDialog(self.settings, taken=self._taken(), parent=parent, template=template)
         if dlg.exec():
             spec, password = dlg.request()
             self._run("apply", {"spec": spec, "password": password, "connect": True},
@@ -911,8 +985,10 @@ class MainWindow(QMainWindow):
                       "Connecting %s" % spec["name"], spec["id"])
 
     def preferences(self):
-        if PreferencesDialog(self.settings, self).exec():
+        parent = self.explorers[-1] if self.explorers and not self.isVisible() else self
+        if PreferencesDialog(self.settings, parent).exec():
             self._apply_settings()
+            self.apply_explorer_settings()
 
     def show_changelog(self):
         upd = self.updates.update

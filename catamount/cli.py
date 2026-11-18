@@ -3,6 +3,7 @@
 """Command-line control: list, connect and disconnect drives without the GUI."""
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ USAGE = """Usage: catamount [OPTION]
   --list                 List drives and their status.
   --connect DRIVE        Connect a drive (by name, local folder or id).
   --search QUERY         Search the local index and print matching paths.
+  --explorer [FOLDER]    Open a File Explorer window.
   --search-window [--folder DIR] [QUERY]
                          Open the instant search window.
   --disconnect DRIVE     Disconnect a drive.
@@ -27,6 +29,20 @@ USAGE = """Usage: catamount [OPTION]
 
 COMMANDS = ("--list", "--connect", "--disconnect", "--connect-all", "--disconnect-all",
             "--search")
+
+
+def explorer_args(argv):
+    """Folder to open in Explorer ('' = default start page), or None if not asked."""
+    if "--explorer" not in argv:
+        return None
+    rest = [a for a in argv[argv.index("--explorer") + 1:] if not a.startswith("--")]
+    if not rest:
+        return ""
+    target = rest[0]
+    if target.startswith("file://"):
+        from urllib.parse import unquote, urlparse
+        target = unquote(urlparse(target).path)
+    return os.path.abspath(os.path.expanduser(target))
 
 
 def search_window_args(argv):

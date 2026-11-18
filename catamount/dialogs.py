@@ -41,6 +41,7 @@ DEFAULTS = {
     "tray_show_status": True,
     "auto_check_updates": True,
     "default_bookmark": True,
+    "explorer_mode": False,
 }
 from catamount.index_manager import INDEX_DEFAULTS  # noqa: E402
 DEFAULTS.update(INDEX_DEFAULTS)
@@ -528,6 +529,7 @@ class PreferencesDialog(QDialog):
             iform.addRow(w)
         idx_box.setLayout(iform)
         tabs.addTab(idx_box, "Search")
+        self._build_explorer_tabs(tabs)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._save)
@@ -542,6 +544,183 @@ class PreferencesDialog(QDialog):
         else:
             QMessageBox.warning(self, "Preferences", "Could not turn on the extension. "
                                 "Use the Extensions app instead.")
+
+    # -- Explorer -----------------------------------------------------------
+
+    def _build_explorer_tabs(self, tabs):
+        from catamount.explorer import fm1
+        from catamount.explorer import theme as xtheme
+        from catamount.explorer.navpane import LABEL_DEFAULTS
+        s = self.settings
+
+        def sv(key, default):
+            v = s.value("explorer/" + key, default)
+            if isinstance(default, bool):
+                return v if isinstance(v, bool) else str(v).lower() in ("true", "1")
+            return v
+
+        page = QWidget()
+        f = _form()
+        self.x_mode = QCheckBox("Use CataMount as my file explorer")
+        self.x_mode.setToolTip("Opening CataMount (and clicking the tray icon) opens the "
+                               "Explorer window. Network drive management stays in the tray menu "
+                               "and in Explorer's Network section.")
+        self.x_mode.setChecked(setting(s, "explorer_mode"))
+        self.x_default = QCheckBox("Make it the default file manager (open folders and "
+                                   "“Show in folder” with it)")
+        self.x_default.setChecked(fm1.is_default())
+        self.x_layout = _combo((("win10", "Windows 10 (ribbon)"), ("win11", "Windows 11 (command bar)")),
+                               sv("layout", "win10"))
+        self.x_tabs = QCheckBox("Show tabs")
+        self.x_tabs.setChecked(sv("tabs", sv("layout", "win10") != "win10"))
+        self.x_start = _combo((("home", "Quick access / Home"), ("thispc", "This PC")),
+                              sv("start", "home"))
+        self.x_click = _combo((("double", "Double-click to open an item"),
+                               ("single", "Single-click to open an item")),
+                              "single" if sv("single_click", False) else "double")
+        self.x_ext = QCheckBox("Show file name extensions")
+        self.x_ext.setChecked(sv("show_ext", True))
+        self.x_hidden = QCheckBox("Show hidden files and folders")
+        self.x_hidden.setChecked(sv("show_hidden", False))
+        self.x_confirm = QCheckBox("Ask before moving items to the Trash")
+        self.x_confirm.setChecked(sv("confirm_delete", False))
+        self.x_counts = QCheckBox("Show item counts in group headers")
+        self.x_counts.setChecked(sv("group_counts", False))
+        self.x_date = QLineEdit(s.value("explorer/date_format", "M/d/yyyy h:mm AP") or "M/d/yyyy h:mm AP")
+        self.x_date.setToolTip("Qt date format, e.g. M/d/yyyy h:mm AP (US), dd/MM/yyyy HH:mm, yyyy-MM-dd HH:mm")
+        self.x_size = _combo((("windows", "Always KB, like Windows (1,234 KB)"),
+                              ("auto", "Automatic (1.2 MB)")), s.value("explorer/size_style", "windows"))
+        self.x_terminal = QLineEdit(s.value("explorer/terminal", "") or "")
+        self.x_terminal.setPlaceholderText("automatic (konsole, gnome-terminal, …)")
+        for w in (self.x_mode, self.x_default):
+            f.addRow(w)
+        f.addRow("Layout:", self.x_layout)
+        f.addRow(self.x_tabs)
+        f.addRow("Open new windows to:", self.x_start)
+        f.addRow("Click items as follows:", self.x_click)
+        for w in (self.x_ext, self.x_hidden, self.x_confirm, self.x_counts):
+            f.addRow(w)
+        f.addRow("Date format:", self.x_date)
+        f.addRow("File sizes:", self.x_size)
+        f.addRow("Terminal app:", self.x_terminal)
+        names = QGroupBox("Names in the navigation pane")
+        nf = _form()
+        self.x_labels = {}
+        hints = {"quick": "Quick access", "home": "Home (Windows 11 layout)", "thispc": "This PC",
+                 "network": "Network", "trash": "Trash (e.g. Recycle Bin)",
+                 "homefolder": "Home folder"}
+        for key, default in LABEL_DEFAULTS.items():
+            e = QLineEdit(s.value("explorer/label_" + key, "") or "")
+            e.setPlaceholderText(default)
+            self.x_labels[key] = e
+            nf.addRow(hints[key] + ":", e)
+        names.setLayout(nf)
+        f.addRow(names)
+        page.setLayout(f)
+        tabs.addTab(page, "Explorer")
+
+        # Appearance
+        t = xtheme.get()
+        app = QWidget()
+        af = _form()
+        self.x_theme = _combo((("system", "Follow system"), ("light", "Light"), ("dark", "Dark")),
+                              t.data.get("mode", "system"))
+        from PySide6.QtWidgets import QFontComboBox
+        self.x_font = QFontComboBox()
+        self.x_font_default = QCheckBox("Use the system font")
+        self.x_font_default.setChecked(not t.data.get("font_family"))
+        if t.data.get("font_family"):
+            from PySide6.QtGui import QFont
+            self.x_font.setCurrentFont(QFont(t.data["font_family"]))
+        self.x_font_default.toggled.connect(lambda on: self.x_font.setEnabled(not on))
+        self.x_font.setEnabled(not self.x_font_default.isChecked())
+        self.x_font_size = QSpinBox()
+        self.x_font_size.setRange(0, 24)
+        self.x_font_size.setSpecialValueText("System size")
+        self.x_font_size.setValue(int(t.data.get("font_size") or 0))
+        self.x_row = QSpinBox()
+        self.x_row.setRange(16, 48)
+        self.x_row.setSuffix(" px")
+        self.x_row.setValue(int(t.data.get("row_height", 24)))
+        self.x_accent = QLineEdit(t.data.get("accent", "#0067C0"))
+        pick = QPushButton("Choose…")
+        pick.clicked.connect(self._pick_accent)
+        acc_row = QWidget()
+        al = QHBoxLayout(acc_row)
+        al.setContentsMargins(0, 0, 0, 0)
+        al.addWidget(self.x_accent, 1)
+        al.addWidget(pick)
+        af.addRow("Theme:", self.x_theme)
+        af.addRow(self.x_font_default)
+        af.addRow("Font:", self.x_font)
+        af.addRow("Font size:", self.x_font_size)
+        af.addRow("Row height:", self.x_row)
+        af.addRow("Accent color:", acc_row)
+        info = QLabel("Custom icons, fonts and extra styling go in the theme folder: drop "
+                      "files named after icon slots (this-pc.png, folder.ico, ext-pdf.svg, …) "
+                      "into icons/, fonts into fonts/. README.txt there lists every slot.")
+        info.setWordWrap(True)
+        af.addRow(info)
+        row = QWidget()
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 0, 0, 0)
+        open_btn = QPushButton("Open theme folder")
+        open_btn.clicked.connect(self._open_theme_folder)
+        rl.addWidget(open_btn)
+        rl.addStretch(1)
+        af.addRow(row)
+        app.setLayout(af)
+        tabs.addTab(app, "Appearance")
+
+    def _pick_accent(self):
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QColorDialog
+        c = QColorDialog.getColor(QColor(self.x_accent.text() or "#0067C0"), self, "Accent color")
+        if c.isValid():
+            self.x_accent.setText(c.name())
+
+    def _open_theme_folder(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from catamount.explorer import theme as xtheme
+        QDesktopServices.openUrl(QUrl.fromLocalFile(xtheme.ensure_theme_dir()))
+
+    def _save_explorer(self):
+        import json as _json
+        from catamount.explorer import fm1
+        from catamount.explorer import theme as xtheme
+        s = self.settings
+        s.setValue("explorer_mode", self.x_mode.isChecked())
+        s.setValue("explorer/layout", self.x_layout.currentData())
+        s.setValue("explorer/tabs", self.x_tabs.isChecked())
+        s.setValue("explorer/start", self.x_start.currentData())
+        s.setValue("explorer/single_click", self.x_click.currentData() == "single")
+        s.setValue("explorer/show_ext", self.x_ext.isChecked())
+        s.setValue("explorer/show_hidden", self.x_hidden.isChecked())
+        s.setValue("explorer/confirm_delete", self.x_confirm.isChecked())
+        s.setValue("explorer/group_counts", self.x_counts.isChecked())
+        s.setValue("explorer/date_format", self.x_date.text().strip() or "M/d/yyyy h:mm AP")
+        s.setValue("explorer/size_style", self.x_size.currentData())
+        s.setValue("explorer/terminal", self.x_terminal.text().strip())
+        for key, e in self.x_labels.items():
+            s.setValue("explorer/label_" + key, e.text().strip())
+        if self.x_default.isChecked() != fm1.is_default():
+            err = fm1.set_default(s, self.x_default.isChecked())
+            if err:
+                QMessageBox.warning(self, "Preferences", err)
+        d = xtheme.ensure_theme_dir()
+        path = os.path.join(d, "theme.json")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = _json.load(fh)
+        except (OSError, ValueError):
+            data = {}
+        data.update({"mode": self.x_theme.currentData(),
+                     "font_family": "" if self.x_font_default.isChecked() else self.x_font.currentFont().family(),
+                     "font_size": self.x_font_size.value(), "row_height": self.x_row.value(),
+                     "accent": self.x_accent.text().strip() or "#0067C0"})
+        with open(path, "w", encoding="utf-8") as fh:
+            _json.dump(data, fh, indent=2)
 
     def _tray_toggled(self, on):
         for w in (self.close_to_tray, self.notify, self.tray_style, self.tray_status):
@@ -573,6 +752,7 @@ class PreferencesDialog(QDialog):
         s.setValue("index/pause_on_battery", self.pause_battery.isChecked())
         s.setValue("index/mount_ready", self.mount_ready.isChecked())
         s.setValue("index/skip_system", self.skip_system.isChecked())
+        self._save_explorer()
         s.sync()
         try:
             autostart.set_enabled(self.login.isChecked())
