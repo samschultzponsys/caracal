@@ -83,6 +83,10 @@ install if something was removed.
 | Desktop search (KRunner, GNOME) | `python3-gobject` | `python3-gi` | recommended |
 | PDF text for content search | `poppler-utils` | `poppler-utils` | recommended |
 | "Search here" in Files / Caja | `nautilus-python` | `python3-nautilus` | suggested |
+| SFTP / SCP locations | `fuse-sshfs` | `sshfs` | recommended |
+| FTP / FTPS / WebDAV locations | `rclone` | `rclone` | recommended |
+| USB drives in Explorer | `udisks2` | `udisks2` | recommended |
+| Default file manager switch | `xdg-utils` | `xdg-utils` | recommended |
 | Find servers on the network | `avahi-tools` | `avahi-utils` | recommended |
 | List SMB shares, test SMB connections | `samba-client` | `smbclient` | recommended |
 | Tray icon on GNOME | `gnome-shell-extension-appindicator` | `gnome-shell-extension-appindicator` | recommended on Fedora GNOME, suggested on Debian |
@@ -102,6 +106,52 @@ sudo apt install gnome-shell-extension-appindicator
 ```
 
 Without a tray, CataMount works normally and closing the window quits it.
+
+## CataMount Explorer (preview)
+
+A Windows Explorer-style file manager built into CataMount. Turn it on in
+**Preferences → Explorer → Use CataMount as my file explorer**; then opening
+CataMount (or clicking the tray icon) opens Explorer. Network drive management stays
+in the tray menu and under Network in Explorer.
+
+- **Layouts:** Windows 10 (ribbon, the default) or Windows 11 (command bar). Tabs are optional.
+- **Navigation pane:** Quick access (pin any folder), This PC (your folders, disks, USB
+  drives, and network drives as "name (\\server)"), Network, Trash. Rename any of these
+  in Preferences → Explorer.
+- **Details view** with Explorer's grouping (Today, Yesterday, Earlier this week…,
+  or by type, name, size) and Windows-style sizes and dates. Each folder remembers its
+  sort and grouping.
+- **Everything else you'd expect:** breadcrumb address bar (type a path, `\\server\share`
+  or `sftp://…` to connect), search box (instant on indexed drives), preview pane,
+  thumbnails, Open with, Properties, templates, copy/cut/paste and drag-and-drop with
+  other apps, Trash and undo (Ctrl+Z), Explorer's keyboard shortcuts.
+- **Default file manager:** Preferences → Explorer → "Make it the default file manager".
+  The previous one is restored when you turn it off.
+- **Light/dark just for Explorer:** View → Theme.
+
+### Custom look (theme folder)
+
+Preferences → Appearance → **Open theme folder**
+(`~/.local/share/catamount/explorer-theme/`):
+
+| Put here | Does |
+|---|---|
+| `icons/<slot>.png/.svg/.ico` | Replaces an icon: `this-pc`, `network`, `folder`, `drive`, `back`, `copy`… (README.txt in the folder lists every slot) |
+| `icons/ext-<extension>.png` | Icon for a file type, e.g. `ext-pdf.png` |
+| `fonts/*.ttf / *.otf` | Fonts you can then pick in Preferences → Appearance |
+| `theme.json` | Colors, accent, row height, font |
+| `style.qss` | Extra Qt stylesheet rules |
+
+CataMount doesn't ship Microsoft's icons or fonts; you can drop in your own copies.
+
+### SFTP / SCP, FTP, FTPS and WebDAV
+
+**Add network location** in Explorer also mounts SSH servers (SFTP, which also covers
+SCP-style access, via `sshfs`) and FTP / FTPS / WebDAV servers (via `rclone`). These are
+per-user mounts in `~/Network/…`, so no admin password is needed. Each is a systemd user
+service (`~/.config/systemd/user/catamount-<id>.service`) and can reconnect when you
+sign in. Passwords are stored in files only you can read. SSH keys and the SSH agent
+are recommended for SFTP.
 
 ## Instant search
 

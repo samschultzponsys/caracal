@@ -2,6 +2,47 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-19 — v0.5: CataMount Explorer (preview)
+
+Sam: Dolphin can't be made to look enough like Windows Explorer; wants an Explorer-like
+file manager, a slot for his own icons and fonts, and SMB/NFS/SFTP/SCP/FTP mounting in
+the left bar. Combined into CataMount with a toggle (explorer_mode). Layout target:
+his Windows 10 dark Explorer screenshot (ribbon, date groups, compact rows, preview pane).
+
+### Structure (catamount/explorer/)
+- `model.py` DirModel: own QAbstractItemModel (not QFileSystemModel) so it can do groups
+  (top level = groups, internalId = group+1 for children), Windows KB sizes, M/d/yyyy dates,
+  natural sort with folders first, async scandir thread, QFileSystemWatcher reload, async
+  thumbnails, rename via setData (hide-extension aware), drops go to FileOperation.
+- `fileops.py`: FileOperation thread with progress/conflict signals, rename-fast moves on the
+  same device, `.catamount-part` temp files, never deletes sources after a failed copy.
+  Own freedesktop trash (`trash_item`) because QFile.moveToTrash failed in testing;
+  undo for rename/mkdir/create/move/copy/trash.
+- `window.py` ExplorerWindow: tabs (state per tab: history/index/loc), pseudo locations
+  catamount:home/thispc/network, net:sys:<id>, net:user:<id>, device:<dev>, connect:<addr>.
+  Per-folder prefs in QSettings `explorer/folder_prefs` (sort/group). FileOpRunner shows the
+  progress dialog after 500 ms.
+- `ribbon.py` (Win10 ribbon + GroupDelegate), `navpane.py` (Win10/Win11 trees, PinDelegate,
+  configurable labels), `widgets.py` (AddressBar, TilePage/Tile, PreviewPane),
+  `dialogs.py` (OperationDialog, ConflictDialog, PropertiesDialog, LocationDialog,
+  OpenWithDialog; `_adopt` gives each dialog Explorer's palette), `theme.py` (ICON_SLOTS,
+  theme folder, palette() + stylesheet() per light/dark), `places.py` (user dirs,
+  mountinfo volumes, lsblk + udisksctl), `openwith.py` (.desktop parsing, mimeapps.list),
+  `fm1.py` (xdg-mime default + org.freedesktop.FileManager1 via Gio).
+- `catamount/user_mounts.py`: sftp (sshfs -f, password_stdin from a 0600 secret file) and
+  ftp/ftps/webdav (rclone mount, Type=notify, obscured pass in a 0600 rclone conf) as systemd
+  user units with the "# Managed by CataMount" header.
+- MainWindow: drive_listeners, open_explorer, show_default, browse_and_add, add_drive(address,
+  kind), edit/remove_drive_obj, apply_explorer_settings. app.py: `--explorer [path]`,
+  `--explorer-service`, single-instance message `explore\t<path>`.
+- Tests: 57 (Qt tests skip on the CI runner, which has no PySide6).
+
+### Known gaps / next
+- Not tried on a real KDE desktop yet; icons in screenshots are blank only because the
+  container has no icon theme.
+- Grouping only applies in Details view (icon views are flat).
+- Sam asked whether to rename the app now that it does more: name options are pending.
+
 ## 2026-11-18 — v0.4: tray icon grey → green in every style
 
 - Sam: "looks worse when connected than disconnected; should be greyed out until connected

@@ -2,6 +2,21 @@
 
 All notable user-facing changes to CataMount.
 
+## [0.5] - 2026-11-19
+
+**CataMount Explorer (preview)**: a Windows Explorer-style file manager. Turn it on in Preferences → Explorer → "Use CataMount as my file explorer".
+
+- Windows 10 layout (File / Home / Share / View ribbon) or Windows 11 layout (command bar), compact rows, optional tabs.
+- Details view grouped like Explorer ("Today", "Yesterday", "Earlier this week"… or by type, name, size), Windows-style sizes (1,234 KB) and dates; each folder remembers its sort and grouping (Downloads defaults to newest first, grouped by date).
+- Navigation pane with Quick access (pinned folders), This PC (your folders, disks, USB drives, and network drives shown as "name (\\server)"), Network and Trash. The names are configurable (e.g. call Trash "Recycle Bin").
+- Breadcrumb address bar, back/forward/recent/up, instant search box (uses the search index on indexed drives), preview pane, thumbnails, Open with, Properties, New folder/file and templates, copy/cut/paste with other file managers, drag and drop, Trash with undo (Ctrl+Z), and Explorer's keyboard shortcuts.
+- Copying and moving show progress and ask Replace / Skip / Keep both on conflicts.
+- Light or dark just for Explorer (View → Theme), independent of the desktop.
+- Your own skin: drop icons, fonts and colors into the theme folder (Preferences → Appearance → Open theme folder).
+- Can be made the default file manager, so folders and "Show in folder" open in it.
+
+**New network location types**: SFTP/SCP (via sshfs) and FTP, FTPS and WebDAV (via rclone), mounted per user without an admin password, from Explorer's "Add network location".
+
 ## [0.4] - 2026-11-18
 
 - Tray icon fix: it's now grey until a drive is connected and turns green when one is, in every tray icon style (the simple styles used to stay white/dark and only fade). Drives that connect on first access count as connected while they're ready. A red dot still means a drive failed.
