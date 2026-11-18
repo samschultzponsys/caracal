@@ -2,6 +2,15 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-18 — v0.4: tray icon grey → green in every style
+
+- Sam: "looks worse when connected than disconnected; should be greyed out until connected
+  then reflect a color". The mono (white/dark) styles only faded when unlit and stayed
+  white/dark when lit. Now `tray_icon` recolors the mono glyph (CompositionMode_SourceIn):
+  grey when unlit, green when lit (MONO_TINTS). The color style was already grey/green.
+  "ready" (automount armed) now counts as lit. Style names: "Color tile", "Simple (for dark
+  panels)", "Simple (for light panels)".
+
 ## 2026-11-18 — v0.3: instant search (Everything-style)
 
 Sam: Windows share search was always slow; wants an index for fast search, "the full

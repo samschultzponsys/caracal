@@ -2,6 +2,10 @@
 
 All notable user-facing changes to CataMount.
 
+## [0.4] - 2026-11-18
+
+- Tray icon fix: it's now grey until a drive is connected and turns green when one is, in every tray icon style (the simple styles used to stay white/dark and only fade). Drives that connect on first access count as connected while they're ready. A red dot still means a drive failed.
+
 ## [0.3] - 2026-11-18
 
 Instant search for network drives, like Everything on Windows.

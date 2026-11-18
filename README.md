@@ -31,8 +31,8 @@ read-only.
 - Command line: `catamount --list`, `--connect`, `--disconnect`, `--connect-all`,
   `--disconnect-all`.
 - Connect, disconnect, edit, remove and open drives; status refreshes live.
-- Lives in the system tray: the icon lights up when a drive is connected (grey
-  when none are, red dot if one failed), closing the window keeps it running, the tray menu
+- Lives in the system tray: the icon is grey until a drive is connected and turns
+  green when one is (red dot if one failed), closing the window keeps it running, the tray menu
   connects/disconnects/opens drives, and you get a notification if a drive fails.
   Optional start at login (straight into the tray).
 - Light, dark or follow-system theme.

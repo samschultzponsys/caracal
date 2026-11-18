@@ -14,8 +14,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 # Installed location first, then the source checkout.
 _ICON_ROOTS = ("/usr/share/catamount/icons", os.path.join(_HERE, "..", "data", "icons"))
 
-TRAY_STYLES = (("color", "Color"), ("light", "White (for dark panels)"),
-               ("dark", "Dark (for light panels)"))
+TRAY_STYLES = (("color", "Color tile"), ("light", "Simple (for dark panels)"),
+               ("dark", "Simple (for light panels)"))
 BADGE_COLORS = {"failed": "#DC2626", "connected": "#16A34A"}
 
 
@@ -38,40 +38,46 @@ def app_icon():
     return icon
 
 
+# Glyph colors for the monochrome tray styles: (not connected, connected)
+MONO_TINTS = {"light": ("#9CA3AF", "#34D399"),   # for dark panels
+              "dark": ("#6B7280", "#059669")}    # for light panels
+
+
 def tray_icon(style="color", state=None, lit=True):
     """Tray icon in the chosen style.
 
-    lit=False (no drive connected) shows the icon dimmed: the color icon's network
-    nodes go dark, the white/dark icons fade. state="failed" adds a red badge.
+    lit=False (nothing connected): grey in every style. lit=True: green (the color icon,
+    or a green glyph for the white/dark styles). state="failed" adds a red badge.
     """
     base = QIcon()
-    if style in ("light", "dark"):
+    tint = None
+    if style in MONO_TINTS:
         p = _find("tray", "tray-%s.svg" % style)
         if p:
             base = QIcon(p)
+            tint = MONO_TINTS[style][1 if lit else 0]
     elif not lit:
         p = _find("tray", "tray-color-idle.svg")
         if p:
             base = QIcon(p)
     if base.isNull():
         base = app_icon()
-    fade = not lit and style in ("light", "dark")
     badge = BADGE_COLORS.get(state)
-    if not fade and not badge:
+    if not tint and not badge:
         return base
     icon = QIcon()
     for size in (16, 22, 24, 32, 48, 64):
         src = base.pixmap(size, size)
         if src.isNull():
             continue
-        pm = QPixmap(src.size())
-        pm.setDevicePixelRatio(src.devicePixelRatio())
-        pm.fill(QColor(0, 0, 0, 0))
+        pm = QPixmap(src)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setOpacity(0.4 if fade else 1.0)
-        p.drawPixmap(0, 0, src)
-        p.setOpacity(1.0)
+        if tint:
+            # Recolor the glyph, keeping its shape (alpha).
+            p.setCompositionMode(QPainter.CompositionMode_SourceIn)
+            p.fillRect(pm.rect(), QColor(tint))
+            p.setCompositionMode(QPainter.CompositionMode_SourceOver)
         if badge:
             r = max(3.0, size * 0.2)
             p.setPen(QPen(QColor("#FFFFFF"), max(1.0, size / 24)))

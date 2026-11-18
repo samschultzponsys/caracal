@@ -230,7 +230,9 @@ class MainWindow(QMainWindow):
         if failed:
             tip += "\nFailed: " + ", ".join(d.name for d in failed)
         self.tray.setToolTip(tip)
-        lit = connected > 0 or not setting(self.settings, "tray_show_status")
+        # "ready" (connects on first access) counts: the drive is there to use.
+        usable = sum(1 for d in self.drives if d.state in ("connected", "ready"))
+        lit = usable > 0 or not setting(self.settings, "tray_show_status")
         self.tray.setIcon(tray_icon(setting(self.settings, "tray_icon_style"),
                                     "failed" if failed else None, lit))
 
