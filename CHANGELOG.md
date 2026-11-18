@@ -2,6 +2,19 @@
 
 All notable user-facing changes to CataMount.
 
+## [0.3] - 2026-11-18
+
+Instant search for network drives, like Everything on Windows.
+
+- New **Search index** tab: choose which drives to index (file names, and optionally the text inside documents, PDFs, e-books and text files). The index lives on this computer; searching never touches the network, and results still show while a drive is offline.
+- New **search window** (toolbar, tray menu, Ctrl+F, or the "Search network drives" launcher action you can bind to a hotkey): results as you type, sortable columns, open the file or its folder, copy paths.
+- Everything-style filters: `ext:pdf`, `type:pic`, `size:>100mb`, `modified:week`, `folder:projects`, `drive:nas`, `content:"exact phrase"`, wildcards like `*.iso` or `report?.docx`, and paths like `projects/2026`.
+- Results in KRunner / the Plasma launcher (KDE) and in GNOME's Activities search.
+- "Search here (CataMount, instant)" in the right-click menu of Dolphin, Files (Nautilus), Nemo and Caja.
+- The index stays current: only changed folders are re-read every 15 minutes, a full refresh runs daily, and changes you make from this computer show up within seconds. Indexing pauses on battery (optional).
+- `catamount --search QUERY` prints matching paths for scripts.
+- Preferences are now split into General, System tray and Search tabs.
+
 ## [0.2] - 2026-11-17
 
 - The tray icon now shows whether you're connected: it's grey when no drive is connected and lights up green (glowing network) as soon as one is. A red dot still means a drive failed. You can turn this off in Preferences → System tray.

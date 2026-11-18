@@ -22,6 +22,7 @@ from catamount import APP_NAME, __version__
 from catamount import bookmarks, deps
 from catamount.dialogs import ChangelogDialog, DriveDialog, PreferencesDialog, setting
 from catamount.helper_client import HelperClient
+from catamount.index_manager import IndexManager
 from catamount.icons import tray_icon
 from catamount import updater
 from catamount.update_client import UpdateClient
@@ -94,7 +95,7 @@ def _icon(widget, theme_name, fallback):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, start_in_tray=False):
+    def __init__(self, start_in_tray=False, search=None):
         super().__init__()
         self.settings = QSettings("catamount", "catamount")
         self.drives = []
@@ -109,6 +110,8 @@ class MainWindow(QMainWindow):
         self._usage = {}          # drive id -> (used, total)
         self._usage_inflight = set()
         self.tray = None
+        self.index = IndexManager(self.settings, self)
+        self.search_window = None
         self.updates = UpdateClient(self)
         self.updates.checked.connect(self._update_checked)
         self.updates.downloaded.connect(self._update_downloaded)
@@ -132,11 +135,13 @@ class MainWindow(QMainWindow):
         self.update_timer.start(3600 * 1000)
         QTimer.singleShot(8000, self._auto_check)
 
-        if start_in_tray:
-            self._wait_for_tray(tries=15)
+        if start_in_tray or search is not None:
+            self._wait_for_tray(tries=15 if search is None else 1)
         else:
             self.show()
             self._update_tray()
+        if search is not None:
+            QTimer.singleShot(0, lambda: self.open_search(*search))
 
     # -- tray -------------------------------------------------------------
 
@@ -145,7 +150,8 @@ class MainWindow(QMainWindow):
         if self.tray is not None:
             return
         if tries <= 0:
-            self.showMinimized()
+            if self.search_window is None or not self.search_window.isVisible():
+                self.showMinimized()
             return
         if setting(self.settings, "tray_enabled") and QSystemTrayIcon.isSystemTrayAvailable():
             self._update_tray()
@@ -186,6 +192,8 @@ class MainWindow(QMainWindow):
         shown = self.isVisible() and not self.isMinimized()
         m.addAction("Hide %s" % APP_NAME if shown else "Show %s" % APP_NAME,
                     self.hide if shown else self.show_window)
+        m.addAction(QIcon.fromTheme("system-search"), "Search network drives…",
+                    lambda: self.open_search())
         m.addSeparator()
         if not self.drives:
             a = m.addAction("No network drives")
@@ -290,7 +298,16 @@ class MainWindow(QMainWindow):
         self._save_window_state()
         super().hideEvent(event)
 
+    def open_search(self, query="", folder=""):
+        if self.search_window is None:
+            from catamount.search_window import SearchWindow
+            self.search_window = SearchWindow(lambda: self.drives)
+        self.search_window.open_search(query, folder)
+
     def quit(self):
+        self.index.stop()
+        if self.search_window is not None:
+            self.search_window.close()
         self._save_window_state()
         self._quitting = True
         if self.tray is not None:
@@ -337,6 +354,11 @@ class MainWindow(QMainWindow):
                                  "&Preferences…", self)
         self.act_prefs.setShortcut(QKeySequence.Preferences)
         self.act_prefs.triggered.connect(self.preferences)
+        self.act_search = QAction(_icon(self, "system-search", st.SP_FileDialogContentsView),
+                                  "&Search…", self)
+        self.act_search.setShortcut(QKeySequence.Find)
+        self.act_search.setToolTip("Search files on indexed network drives")
+        self.act_search.triggered.connect(lambda: self.open_search())
         self.act_duplicate = QAction(_icon(self, "edit-copy", st.SP_FileIcon), "D&uplicate…", self)
         self.act_duplicate.triggered.connect(self.duplicate_drive)
         self.act_password = QAction(_icon(self, "dialog-password", st.SP_DialogYesButton),
@@ -371,6 +393,7 @@ class MainWindow(QMainWindow):
         mb = self.menuBar()
         m = mb.addMenu("&File")
         m.addAction(self.act_add)
+        m.addAction(self.act_search)
         m.addSeparator()
         m.addAction(self.act_import)
         m.addAction(self.act_export)
@@ -400,6 +423,7 @@ class MainWindow(QMainWindow):
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         tb.addAction(self.act_add)
+        tb.addAction(self.act_search)
         tb.addSeparator()
         tb.addAction(self.act_connect)
         tb.addAction(self.act_disconnect)
@@ -474,6 +498,9 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.tabs.addTab(self.stack, "Network drives")
+        from catamount.index_page import IndexPage
+        self.index_page = IndexPage(self.index, lambda: self.open_search())
+        self.tabs.addTab(self.index_page, "Search index")
         self.tabs.addTab(fstab_page, "System mounts (fstab)")
         self.setCentralWidget(self.tabs)
 
@@ -505,6 +532,7 @@ class MainWindow(QMainWindow):
         current_id = current.id if current else None
         self.drives = load_drives()
         refresh_states(self.drives)
+        self.index.update_drives(self.drives)
         err = bookmarks.sync(self.drives, self.settings)
         if err:
             self.statusBar().showMessage(err, 8000)

@@ -1,0 +1,7 @@
+[Nemo Action]
+Name=Search here (CataMount, instant)
+Comment=Instant search on indexed network drives
+Exec=catamount --search-window --folder %P
+Icon-Name=system-search
+Selection=none
+Extensions=any;

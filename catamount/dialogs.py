@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-    QSpinBox, QSystemTrayIcon, QTextBrowser, QVBoxLayout, QWidget,
+    QSpinBox, QSystemTrayIcon, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from catamount import APP_NAME, __version__
@@ -42,6 +42,8 @@ DEFAULTS = {
     "auto_check_updates": True,
     "default_bookmark": True,
 }
+from catamount.index_manager import INDEX_DEFAULTS  # noqa: E402
+DEFAULTS.update(INDEX_DEFAULTS)
 
 
 def setting(settings, key):
@@ -446,9 +448,13 @@ class PreferencesDialog(QDialog):
         self.auto_updates = QCheckBox("Check for updates automatically (once a day)")
         self.auto_updates.setChecked(setting(settings, "auto_check_updates"))
         form.addRow(self.auto_updates)
-        layout.addLayout(form)
+        tabs = QTabWidget()
+        general = QWidget()
+        general.setLayout(form)
+        tabs.addTab(general, "General")
+        layout.addWidget(tabs)
 
-        tray_box = QGroupBox("System tray")
+        tray_box = QWidget()
         tform = _form()
         self.tray_enabled = QCheckBox("Show CataMount in the system tray")
         self.tray_enabled.setChecked(setting(settings, "tray_enabled"))
@@ -484,7 +490,44 @@ class PreferencesDialog(QDialog):
         self.tray_enabled.toggled.connect(self._tray_toggled)
         self._tray_toggled(self.tray_enabled.isChecked())
         tray_box.setLayout(tform)
-        layout.addWidget(tray_box)
+        tabs.addTab(tray_box, "System tray")
+
+        idx_box = QWidget()
+        iform = _form()
+        self.rescan = QSpinBox()
+        self.rescan.setRange(1, 1440)
+        self.rescan.setSuffix(" min")
+        self.rescan.setValue(setting(settings, "index/rescan_minutes"))
+        self.rescan.setToolTip("How often to check indexed drives for changes made by other "
+                               "computers (only changed folders are re-read).")
+        self.full = QSpinBox()
+        self.full.setRange(1, 24 * 30)
+        self.full.setSuffix(" h")
+        self.full.setValue(setting(settings, "index/full_hours"))
+        self.full.setToolTip("How often to re-read every folder, which also catches files "
+                             "edited in place on other computers.")
+        self.max_content = QSpinBox()
+        self.max_content.setRange(1, 1024)
+        self.max_content.setSuffix(" MB")
+        self.max_content.setValue(setting(settings, "index/max_content_mb"))
+        self.max_content.setToolTip("Larger files are indexed by name only.")
+        self.watch_local = QCheckBox("Update right away when I change files from this computer")
+        self.watch_local.setChecked(setting(settings, "index/watch_local"))
+        self.pause_battery = QCheckBox("Pause indexing on battery power")
+        self.pause_battery.setChecked(setting(settings, "index/pause_on_battery"))
+        self.mount_ready = QCheckBox("Connect on-access drives to index them")
+        self.mount_ready.setToolTip("Drives that connect on first access are mounted when "
+                                    "it's time to update their index.")
+        self.mount_ready.setChecked(setting(settings, "index/mount_ready"))
+        self.skip_system = QCheckBox("Skip recycle bins, snapshots and NAS system folders")
+        self.skip_system.setChecked(setting(settings, "index/skip_system"))
+        iform.addRow("Check for changes every:", self.rescan)
+        iform.addRow("Full refresh every:", self.full)
+        iform.addRow("Read contents of files up to:", self.max_content)
+        for w in (self.watch_local, self.pause_battery, self.mount_ready, self.skip_system):
+            iform.addRow(w)
+        idx_box.setLayout(iform)
+        tabs.addTab(idx_box, "Search")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._save)
@@ -523,6 +566,13 @@ class PreferencesDialog(QDialog):
         s.setValue("tray_icon_style", self.tray_style.currentData())
         s.setValue("tray_show_status", self.tray_status.isChecked())
         s.setValue("auto_check_updates", self.auto_updates.isChecked())
+        s.setValue("index/rescan_minutes", self.rescan.value())
+        s.setValue("index/full_hours", self.full.value())
+        s.setValue("index/max_content_mb", self.max_content.value())
+        s.setValue("index/watch_local", self.watch_local.isChecked())
+        s.setValue("index/pause_on_battery", self.pause_battery.isChecked())
+        s.setValue("index/mount_ready", self.mount_ready.isChecked())
+        s.setValue("index/skip_system", self.skip_system.isChecked())
         s.sync()
         try:
             autostart.set_enabled(self.login.isChecked())

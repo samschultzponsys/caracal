@@ -43,8 +43,12 @@ def main(argv=None):
     if "--help" in argv or "-h" in argv:
         print(cli.USAGE)
         return 0
+    if "--search-service" in argv:
+        from catamount import search_service
+        return search_service.main()
     if cli.wants_cli(argv):
         return cli.main(argv)
+    search = cli.search_window_args(argv)   # (query, folder) or None
     start_in_tray = "--tray" in argv
 
     QApplication.setApplicationName("catamount")
@@ -55,7 +59,11 @@ def main(argv=None):
     app.setQuitOnLastWindowClosed(False)  # the tray keeps us alive; MainWindow decides
 
     # Single instance: a second launch just brings the first window forward.
-    if _forward_to_running("tray" if start_in_tray else "show"):
+    if search is not None:
+        message = "search\t%s\t%s" % (search[1], search[0])
+    else:
+        message = "tray" if start_in_tray else "show"
+    if _forward_to_running(message):
         return 0
     global _server
     QLocalServer.removeServer(_server_name())  # clear a stale socket after a crash
@@ -66,13 +74,17 @@ def main(argv=None):
     from catamount.icons import app_icon
     from catamount.mainwindow import MainWindow
     app.setWindowIcon(app_icon())
-    win = MainWindow(start_in_tray=start_in_tray)
+    win = MainWindow(start_in_tray=start_in_tray, search=search)
 
     def on_connection():
         while server.hasPendingConnections():
             conn = server.nextPendingConnection()
             conn.waitForReadyRead(500)
-            if bytes(conn.readAll()).decode(errors="replace").strip() != "tray":
+            msg = bytes(conn.readAll()).decode(errors="replace")
+            if msg.startswith("search\t"):
+                _, folder, query = (msg.split("\t", 2) + ["", ""])[:3]
+                win.open_search(query, folder)
+            elif msg.strip() != "tray":
                 win.show_window()
             conn.disconnectFromServer()
             conn.deleteLater()

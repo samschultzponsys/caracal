@@ -76,7 +76,7 @@ These are my defaults. Apply each one only where it fits the project type (e.g. 
 - Host: N/A — desktop app installed on Fedora/Debian workstations, not a server service. Don't ask.
 - Bind storage path: N/A — no Docker. Don't ask.
 - License override (if any): None — Apache 2.0, copyright holder "Spazcat Enterprises". PySide6/Shiboken6 are LGPLv3 (fine as unmodified system libs); list in THIRD_PARTY_LICENSES.md.
-- DB override (if any): No database. Unit files are the source of truth (identified by a "# Managed by CataMount" header); app preferences in QSettings (~/.config/catamount/). SMB creds in /etc/catamount/creds/<uuid>.cred (root, 0600).
+- DB override (if any): No database for drive config. Unit files are the source of truth (identified by a "# Managed by CataMount" header); app preferences in QSettings (~/.config/catamount/). SMB creds in /etc/catamount/creds/<uuid>.cred (root, 0600). The instant-search index is a per-user SQLite cache (FTS5) at ~/.local/share/catamount/index.sqlite (0600), rebuildable from the shares.
 - Other overrides:
   - Platforms: Fedora (primary) and Debian 13+/Ubuntu 26.04+ only (Ubuntu before 26.04 doesn't package PySide6). NO Flatpak — the app needs root on the host (writes /etc/systemd/system, runs systemctl/mount), must install a polkit policy in /usr/share/polkit-1/actions, depends on host cifs-utils/nfs-utils, and stores root-owned credentials; a sandbox blocks all of that and Flathub would reject it.
   - Docker and Auth sections: not applicable.

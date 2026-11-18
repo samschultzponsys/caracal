@@ -2,6 +2,47 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-18 — v0.3: instant search (Everything-style)
+
+Sam: Windows share search was always slow; wants an index for fast search, "the full
+deal", with other desktops supported where possible; search is always local.
+
+### Design
+- Dolphin/Nautilus search can't be pointed at another index (Baloo and Tracker skip
+  network filesystems), so CataMount keeps its own index and plugs into the places users
+  search: its own window, KRunner, GNOME Shell, and file-manager right-click entries.
+- `indexdb.py` (no Qt): SQLite WAL, tables drives/dirs/files, FTS5 `names` + `dirfts`
+  (trigram, substring match), `contents` (unicode61). `files.ext` is indexed. Query parser
+  handles words, ext:/type:/size:/modified:/folder:/drive:/content:, wildcards and paths.
+  All long words go in ONE trigram MATCH (one FTS join per word took 16 s on 1M rows).
+  Words under 3 chars fall back to LIKE. COUNT_CAP 20000.
+- Benchmark (1M synthetic entries, this container): 0.2–176 ms per query, 341 MB DB.
+- `crawler.py` (no Qt): a full scan lists everything; an incremental scan stats every
+  known dir and re-lists those with a changed mtime. Skips recycle/snapshot/NAS system
+  folders. Content pass: extract.py (text/code, OOXML, ODF, EPUB via zipfile, PDF via
+  pdftotext; 256K chars per file, size cap from prefs); re-extracts when content_mtime !=
+  mtime. Watcher = ctypes inotify, budget of half of max_user_watches, shallow dirs first.
+- `index_manager.py` (Qt, in the tray app): one worker thread, job queue (scan/full/dirs/
+  content/delete/clear_content), 30 s scheduler (rescan_minutes, full_hours, pause on
+  battery via /sys/class/power_supply, mount_ready). Watcher events are debounced 2 s into a
+  "dirs" job. Per-drive prefs live in QSettings `index/drives` (JSON); index prefs are
+  per user, not in the unit spec.
+- `search_window.py`: QTableView + model, 60 ms debounce, synchronous queries (fast
+  enough), content searches show the snippet column second, ShowItems via FileManager1.
+- `search_service.py`: GLib/Gio only (no Qt), D-Bus activated
+  (`com.spazcat.CataMount.SearchProvider`), exposes org.kde.krunner1 at /krunner and
+  org.gnome.Shell.SearchProvider2, exits after 5 min idle. Tested with gdbus under
+  dbus-run-session (python3.12 + gi here).
+- Integration files in data/search/ (dbus service, krunner dbusplugin, gnome-shell ini,
+  kio servicemenu, nemo actions, nautilus/caja python extension). The .desktop got a
+  "search" action for hotkeys. Thunar: no system-wide action location (uca.xml is per
+  user), so not integrated.
+- Single-instance message `search\t<folder>\t<query>` opens the window in the running app.
+
+### Not verified on real hardware
+- KRunner and GNOME Shell actually loading the providers, the file-manager entries, and
+  inotify on real CIFS/NFS mounts. Sam to test.
+
 ## 2026-11-17 — v0.2: tray icon shows connection state
 
 - Sam: 0.1 "worked well", but the tray icon didn't light up when a connection was made

@@ -15,6 +15,9 @@ USAGE = """Usage: catamount [OPTION]
   --tray                 Start hidden in the system tray.
   --list                 List drives and their status.
   --connect DRIVE        Connect a drive (by name, local folder or id).
+  --search QUERY         Search the local index and print matching paths.
+  --search-window [--folder DIR] [QUERY]
+                         Open the instant search window.
   --disconnect DRIVE     Disconnect a drive.
   --connect-all          Connect every drive.
   --disconnect-all       Disconnect every drive.
@@ -22,7 +25,24 @@ USAGE = """Usage: catamount [OPTION]
   --help                 Show this help.
 """
 
-COMMANDS = ("--list", "--connect", "--disconnect", "--connect-all", "--disconnect-all")
+COMMANDS = ("--list", "--connect", "--disconnect", "--connect-all", "--disconnect-all",
+            "--search")
+
+
+def search_window_args(argv):
+    """(query, folder) when the search window was asked for, else None."""
+    if "--search-window" not in argv:
+        return None
+    args = argv[argv.index("--search-window") + 1:]
+    folder = ""
+    if "--folder" in args:
+        i = args.index("--folder")
+        if i + 1 < len(args):
+            folder = args[i + 1]
+            del args[i:i + 2]
+        else:
+            del args[i]
+    return " ".join(a for a in args if not a.startswith("--")), folder
 
 
 def wants_cli(argv):
@@ -60,7 +80,30 @@ def _helper(command, payload):
     return (not failed), "\n".join(failed.values())
 
 
+def search_cli(args):
+    from catamount import indexdb
+    i = args.index("--search")
+    query = " ".join(args[i + 1:])
+    as_json = "--json" in args
+    query = query.replace("--json", "").strip()
+    conn = indexdb.connect(readonly=True)
+    if conn is None:
+        print("No search index yet. Turn on indexing in CataMount's Search index tab.",
+              file=sys.stderr)
+        return 1
+    results, total, _ms = indexdb.search(conn, query, limit=10000)
+    if as_json:
+        print(json.dumps([{"path": r.path, "name": r.name, "is_dir": r.is_dir, "size": r.size,
+                           "mtime": r.mtime, "drive": r.drive_name} for r in results]))
+    else:
+        for r in results:
+            print(r.path)
+    return 0 if results else 1
+
+
 def main(argv):
+    if "--search" in argv:
+        return search_cli(argv[1:])
     drives = load_drives()
     refresh_states(drives)
     args = argv[1:]

@@ -20,6 +20,14 @@ install:
 	install -D -m 0644 data/$(APPID).metainfo.xml $(DATADIR)/metainfo/$(APPID).metainfo.xml
 	install -D -m 0644 data/icons/hicolor/scalable/apps/$(APPID).svg $(DATADIR)/icons/hicolor/scalable/apps/$(APPID).svg
 	install -D -m 0644 data/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg $(DATADIR)/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg
+	install -D -m 0644 data/search/com.spazcat.CataMount.SearchProvider.service $(DATADIR)/dbus-1/services/com.spazcat.CataMount.SearchProvider.service
+	install -D -m 0644 data/search/com.spazcat.CataMount.krunner.desktop $(DATADIR)/krunner/dbusplugins/com.spazcat.CataMount.desktop
+	install -D -m 0644 data/search/com.spazcat.CataMount.search-provider.ini $(DATADIR)/gnome-shell/search-providers/com.spazcat.CataMount.search-provider.ini
+	install -D -m 0644 data/search/com.spazcat.CataMount.servicemenu.desktop $(DATADIR)/kio/servicemenus/com.spazcat.CataMount.search.desktop
+	install -D -m 0644 data/search/catamount-search.nemo_action $(DATADIR)/nemo/actions/catamount-search.nemo_action
+	install -D -m 0644 data/search/catamount-search-background.nemo_action $(DATADIR)/nemo/actions/catamount-search-background.nemo_action
+	install -D -m 0644 data/search/catamount_search_nautilus.py $(DATADIR)/nautilus-python/extensions/catamount_search.py
+	install -D -m 0644 data/search/catamount_search_nautilus.py $(DATADIR)/caja-python/extensions/catamount_search.py
 	install -d $(DATADIR)/catamount/icons/tray
 	install -m 0644 data/icons/tray/*.svg $(DATADIR)/catamount/icons/tray/
 

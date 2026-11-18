@@ -20,8 +20,8 @@ Depends: ${misc:Depends},
          systemd,
          cifs-utils,
          nfs-common
-Recommends: libnss-mdns, avahi-utils, smbclient
-Suggests: gnome-shell-extension-appindicator
+Recommends: libnss-mdns, avahi-utils, smbclient, python3-gi, poppler-utils
+Suggests: gnome-shell-extension-appindicator, python3-nautilus
 Description: Map SMB and NFS network drives as persistent systemd mounts
  CataMount works like "Map network drive" on Windows. It creates persistent
  systemd .mount/.automount units for SMB and NFS shares, stores SMB passwords

@@ -36,6 +36,9 @@ read-only.
   connects/disconnects/opens drives, and you get a notification if a drive fails.
   Optional start at login (straight into the tray).
 - Light, dark or follow-system theme.
+- **Instant search** of indexed drives (like Everything on Windows): a local index of
+  file names and, optionally, file contents, searched as you type from CataMount,
+  KRunner, GNOME search, or the file manager's right-click menu. See below.
 - Updates itself from GitHub Releases: a green dot on the version number means
   an update is ready, and one click downloads, verifies and installs it.
 
@@ -77,6 +80,9 @@ install if something was removed.
 | SMB / Windows shares | `cifs-utils` | `cifs-utils` | required |
 | NFS exports | `nfs-utils` | `nfs-common` | required |
 | `.local` server names (mDNS) | `nss-mdns` | `libnss-mdns` | recommended |
+| Desktop search (KRunner, GNOME) | `python3-gobject` | `python3-gi` | recommended |
+| PDF text for content search | `poppler-utils` | `poppler-utils` | recommended |
+| "Search here" in Files / Caja | `nautilus-python` | `python3-nautilus` | suggested |
 | Find servers on the network | `avahi-tools` | `avahi-utils` | recommended |
 | List SMB shares, test SMB connections | `samba-client` | `smbclient` | recommended |
 | Tray icon on GNOME | `gnome-shell-extension-appindicator` | `gnome-shell-extension-appindicator` | recommended on Fedora GNOME, suggested on Debian |
@@ -97,6 +103,52 @@ sudo apt install gnome-shell-extension-appindicator
 
 Without a tray, CataMount works normally and closing the window quits it.
 
+## Instant search
+
+Searching a network share normally means the file manager crawls the whole share
+over the network, which is slow. KDE's and GNOME's own indexers skip network drives.
+CataMount keeps its own index on this computer instead, so searches answer in
+milliseconds and never touch the network.
+
+**Turn it on:** open the **Search index** tab and tick **Names** for a drive. Tick
+**Contents** to also index the text inside files: plain text and code, Word/Excel/
+PowerPoint, LibreOffice documents, EPUB, and PDFs (with `pdftotext` from
+poppler-utils). The first crawl reads the whole share once; after that:
+
+- every 15 minutes it re-reads only folders whose contents changed;
+- once a day it does a full refresh, which also catches files edited in place on other
+  computers;
+- changes you make from this computer are picked up within seconds;
+- indexing can pause on battery. All of these are in **Preferences → Search**.
+
+**Search from:**
+
+| Where | How |
+|---|---|
+| CataMount | **Search…** in the toolbar or tray menu, or Ctrl+F |
+| Any desktop | the launcher action **Search network drives** (`catamount --search-window`). Bind it to a key: KDE lists it under System Settings → Shortcuts → CataMount; on GNOME add a custom shortcut running that command. |
+| KDE Plasma | KRunner / the application launcher: type part of a file name |
+| GNOME | Activities overview search |
+| Dolphin, Files, Nemo, Caja | right-click a folder or the background → **Search here (CataMount, instant)**. Files and Caja need nautilus-python / caja-python. |
+| Terminal | `catamount --search "budget ext:xlsx"` prints matching paths (`--json` for details) |
+
+**Query syntax:** words must all appear in the name (any order, any case).
+
+| Filter | Example |
+|---|---|
+| extension | `ext:pdf`, `ext:jpg,png`, `*.iso` |
+| kind | `type:folder`, `type:file`, `type:doc`, `type:pic`, `type:audio`, `type:video`, `type:zip`, `type:sheet`, `type:slides`, `type:code` |
+| size | `size:>100mb`, `size:<1kb`, `size:4gb` (about 4 GB) |
+| date | `modified:today`, `yesterday`, `week`, `month`, `year`, `modified:>2026-01-01`, `modified:2026-03` |
+| folder | `folder:projects`, or any word with a slash like `clients/acme` |
+| drive | `drive:nas` |
+| inside files | `content:invoice`, `content:"exact phrase"` (or tick **Search inside files**) |
+| wildcards | `report?.docx`, `IMG_*2026*` |
+
+The index is at `~/.local/share/catamount/index.sqlite` (only readable by you) and
+takes roughly 350 MB per million files, more with contents. Each user on a computer
+has their own index.
+
 ## Command line
 
 ```bash
@@ -109,6 +161,10 @@ catamount --connect "Media on nas"
 
 ```bash
 catamount --disconnect-all
+```
+
+```bash
+catamount --search "budget ext:xlsx"
 ```
 
 A drive can be named by its name, its local folder, or its id. Connect and
