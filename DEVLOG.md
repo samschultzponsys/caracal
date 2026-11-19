@@ -2,6 +2,23 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-20 — v0.9: QAT, customizable nav pane, index any folder
+
+Sam's spec (screenshot of his Win10 Explorer + notes): new folder button top-left; right-click
+the left pane to hide/unhide nearly anything and get mounting options; right-click a path or
+mount to index it manually; search stays top-right but uses the index when present; preview
+pane toggle bottom-right; left pane vertical spacing.
+- Ribbon: Quick Access Toolbar in the tab strip (explorer/qat JSON list; default
+  properties + new-folder; ▾ to customize).
+- NavPane: SPACER rows between sections; `hidden` set (explorer/nav_hidden JSON; key "trash"
+  for Trash); `entries()` lists hideable items; right-click works on empty space (loc "").
+  Rows = row_height + 3. Window `_nav_menu` rebuilt: item actions, index submenu, Hide, map /
+  add / browse / manage, "Show in navigation pane" checklist, "Expand to open folder".
+- IndexManager: FolderRoot (id "folder-<sha1>", state from isdir) stored in index/folders;
+  add_folder/remove_folder/covering/indexed_root; update_drives merges folder roots. Window
+  `_index_menu(m, path)` on item/background/nav menus; `_indexed_scope` uses covering().
+- Status bar: preview toggle button (sb_preview) next to the view toggles.
+
 ## 2026-11-20 — v0.8: closer to Windows 10 Explorer; package renamed to caracal
 
 - Repo renamed by Sam to samschultzponsys/caracal; REPO constant, links, metainfo and

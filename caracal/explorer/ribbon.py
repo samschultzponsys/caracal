@@ -87,6 +87,13 @@ class Ribbon(QWidget):
         h = QHBoxLayout(strip)
         h.setContentsMargins(4, 0, 4, 0)
         h.setSpacing(0)
+        # Quick Access Toolbar (Explorer has it in the title bar, top left).
+        self.qat = QWidget()
+        self.qat_lay = QHBoxLayout(self.qat)
+        self.qat_lay.setContentsMargins(0, 0, 6, 0)
+        self.qat_lay.setSpacing(0)
+        h.addWidget(self.qat)
+        self._build_qat()
         self.file_btn = QToolButton()
         self.file_btn.setText("File")
         self.file_btn.setObjectName("RibbonFile")
@@ -127,6 +134,69 @@ class Ribbon(QWidget):
         a.setShortcut(QKeySequence("Ctrl+F1"))
         a.triggered.connect(self.toggle_pinned)
         win.addAction(a)
+
+    # -- quick access toolbar --------------------------------------------------------
+
+    QAT_COMMANDS = (("properties", "properties", "Properties (Alt+Enter)"),
+                    ("new-folder", "new-folder", "New folder (Ctrl+Shift+N)"),
+                    ("undo", "back", "Undo (Ctrl+Z)"),
+                    ("delete", "delete", "Delete"),
+                    ("rename", "rename", "Rename (F2)"),
+                    ("refresh", "refresh", "Refresh (F5)"),
+                    ("terminal", "terminal", "Open in terminal"))
+    QAT_DEFAULT = ["properties", "new-folder"]
+
+    def _qat_selection(self):
+        import json
+        try:
+            v = json.loads(self.win.settings.value("explorer/qat", "") or "null")
+        except ValueError:
+            v = None
+        return v if isinstance(v, list) else list(self.QAT_DEFAULT)
+
+    def _qat_run(self, key):
+        w = self.win
+        {"properties": w.properties, "new-folder": w.new_folder, "undo": w.undo,
+         "delete": lambda: w.delete(), "rename": w.rename, "refresh": w.refresh,
+         "terminal": lambda: w.open_terminal(w.current_location())}[key]()
+
+    def _build_qat(self):
+        while self.qat_lay.count():
+            wdg = self.qat_lay.takeAt(0).widget()
+            if wdg:
+                wdg.hide()
+                wdg.deleteLater()
+        chosen = self._qat_selection()
+        for key, slot, tip in self.QAT_COMMANDS:
+            if key in chosen:
+                b = QToolButton()
+                b.setIcon(theme.get().icon(slot))
+                b.setIconSize(QSize(16, 16))
+                b.setToolTip(tip)
+                b.setAutoRaise(True)
+                b._slot = slot
+                b.clicked.connect(lambda _c=False, k=key: self._qat_run(k))
+                self.qat_lay.addWidget(b)
+        more = QToolButton()
+        more.setText("▾")
+        more.setAutoRaise(True)
+        more.setToolTip("Customize Quick Access Toolbar")
+        more.setPopupMode(QToolButton.InstantPopup)
+        more.setStyleSheet("QToolButton::menu-indicator { image: none; }")
+        menu = QMenu(more)
+        for key, _slot, tip in self.QAT_COMMANDS:
+            a = menu.addAction(tip.split(" (")[0], lambda k=key: self._qat_toggle(k))
+            a.setCheckable(True)
+            a.setChecked(key in chosen)
+        more.setMenu(menu)
+        self.qat_lay.addWidget(more)
+
+    def _qat_toggle(self, key):
+        import json
+        chosen = self._qat_selection()
+        chosen = [k for k in chosen if k != key] if key in chosen else chosen + [key]
+        self.win.settings.setValue("explorer/qat", json.dumps(chosen))
+        self._build_qat()
 
     # -- behavior -----------------------------------------------------------------
 

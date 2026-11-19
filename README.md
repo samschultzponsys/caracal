@@ -127,6 +127,12 @@ in the tray menu and under Network in Explorer.
   sort and grouping.
 - **Mouse and keyboard like Windows:** back/forward mouse buttons, middle-click opens a
   folder in a new tab, Ctrl+wheel resizes icons, F2, Del, Ctrl+Z, Alt+Up, Ctrl+L, F3…
+- **Quick Access Toolbar** (top left: New folder, Properties, customizable with ▾).
+- **Navigation pane you control:** hide or show any item (right-click → Hide, or
+  right-click → Show in navigation pane); map SMB/NFS drives and add SFTP/FTP/WebDAV
+  locations straight from its right-click menu.
+- **Index any folder for fast search:** right-click a folder or mount → *Index this folder
+  for fast search*; the top-right search box then answers instantly inside it.
 - **Trash with Restore**, Extract all… / Compress to ZIP, Frequent folders, column chooser
   (right-click the header).
 - **Everything else you'd expect:** breadcrumb address bar (type a path, `\\server\share`

@@ -351,7 +351,8 @@ class ExplorerWindow(QMainWindow):
                                      lambda: self.set_view("details"))
         self.sb_icons = self._tbtn("icons-view", "Large icons (Ctrl+Shift+2)",
                                    lambda: self.set_view("large"))
-        for b in (self.sb_details, self.sb_icons):
+        self.sb_preview = self._tbtn("preview-pane", "Preview pane (Alt+P)", self.toggle_preview)
+        for b in (self.sb_preview, self.sb_details, self.sb_icons):
             b.setCheckable(True)
             b.setIconSize(QSize(16, 16))
             sb.addPermanentWidget(b)
@@ -368,6 +369,7 @@ class ExplorerWindow(QMainWindow):
         show_prev = explorer_setting(self.settings, "preview", True)
         self.preview.setVisible(show_prev)
         self.cmd_details_pane.setChecked(show_prev)
+        self.sb_preview.setChecked(show_prev)
         self.model.hide_ext = not explorer_setting(self.settings, "show_ext", True)
         self._apply_hidden()
         self.set_view(explorer_setting(self.settings, "view", "details"), save=False)
@@ -575,6 +577,7 @@ class ExplorerWindow(QMainWindow):
 
     def _rebuild_nav(self):
         """Rebuild the navigation tree and re-highlight the folder we're in."""
+        self.nav.hidden = self._load_nav_hidden()
         self.nav.rebuild()
         loc = self.current_location() if hasattr(self, "tabs_state") else None
         if loc and not (explorer_setting(self.settings, "nav_follow", True) and self.nav.reveal(loc)):
@@ -907,6 +910,7 @@ class ExplorerWindow(QMainWindow):
         on = not self.preview.isVisible()
         self.preview.setVisible(on)
         self.cmd_details_pane.setChecked(on)
+        self.sb_preview.setChecked(on)
         self.settings.setValue("explorer/preview", on)
         self._selection_changed()
 
@@ -1134,27 +1138,85 @@ class ExplorerWindow(QMainWindow):
                 self._show_page(loc)
 
     def _nav_menu(self, loc, pos):
+        t = theme.get()
         m = QMenu(self)
         if loc.startswith("/"):
+            m.addAction(t.icon("open"), "Open", lambda: self.go(loc))
             m.addAction("Open in new tab", lambda: self.new_tab(loc))
+            m.addAction("Open in new window", lambda: self.ctl.open_explorer(loc))
+            m.addSeparator()
             if loc in self.nav.pinned:
-                m.addAction(theme.get().icon("pin"), "Unpin from Quick access", lambda: self.unpin(loc))
+                m.addAction(t.icon("pin"), "Unpin from Quick access", lambda: self.unpin(loc))
             else:
-                m.addAction(theme.get().icon("pin"), "Pin to Quick access", lambda: self.pin(loc))
-            m.addAction(theme.get().icon("terminal"), "Open in terminal", lambda: self.open_terminal(loc))
-            m.addAction(theme.get().icon("properties"), "Properties",
-                        lambda: PropertiesDialog([loc], self).exec())
+                m.addAction(t.icon("pin"), "Pin to Quick access", lambda: self.pin(loc))
+            self._index_menu(m, loc)
+            m.addAction(t.icon("terminal"), "Open in terminal", lambda: self.open_terminal(loc))
+            for v in places.mounted_volumes():
+                if v.path == loc and v.removable:
+                    m.addAction(t.icon("eject"), "Eject", lambda p=loc: self.eject(p))
+            if os.path.realpath(loc) == os.path.realpath(TRASH):
+                m.addAction(t.icon("trash"), "Empty Trash", self.empty_trash)
+            m.addAction(t.icon("properties"), "Properties", lambda: PropertiesDialog([loc], self).exec())
         elif loc.startswith("net:sys:") or loc.startswith("net:user:"):
             self._net_actions(m, loc)
-        elif loc in ("caracal:network", "net:add"):
-            m.addAction(theme.get().icon("add-location"), "Add network location…",
-                        lambda: self.add_network_location())
-            m.addAction(theme.get().icon("search"), "Browse the network…", self.ctl.browse_and_add)
-            m.addAction(theme.get().icon("network"), "Manage network drives…", self.ctl.show_window)
-        if os.path.realpath(loc) == os.path.realpath(TRASH):
-            m.addAction(theme.get().icon("trash"), "Empty Trash", self.empty_trash)
+            mp = self._net_mount_point(loc)
+            if mp and os.path.ismount(mp):
+                self._index_menu(m, mp)
+        elif loc in ("caracal:home", "caracal:thispc", "caracal:network"):
+            m.addAction(t.icon("open"), "Open", lambda: self.go(loc))
+            m.addAction("Open in new tab", lambda: self.new_tab(loc))
+        # Hide this item
+        hide_key = "trash" if loc in (TRASH, "trash:") else loc
+        hideable = {e[1] for e in self.nav.entries()}
+        if hide_key in hideable:
+            m.addAction("Hide from navigation pane", lambda: self._set_nav_hidden(hide_key, True))
+        # Network: map / add locations (always available)
         if not m.isEmpty():
-            m.exec(pos)
+            m.addSeparator()
+        m.addAction(t.icon("drive-network"), "Map network drive (SMB / NFS)…",
+                    lambda: self.ctl.add_drive())
+        m.addAction(t.icon("add-location"), "Add network location (SFTP, FTP, WebDAV)…",
+                    lambda: self.add_network_location())
+        m.addAction(t.icon("search"), "Browse the network…", self.ctl.browse_and_add)
+        m.addAction(t.icon("network"), "Manage network drives…", self.ctl.show_window)
+        m.addSeparator()
+        show = m.addMenu("Show in navigation pane")
+        for label, key in self.nav.entries():
+            a = show.addAction(label, lambda k=key: self._set_nav_hidden(k, k not in self.nav.hidden))
+            a.setCheckable(True)
+            a.setChecked(key not in self.nav.hidden)
+        show.addSeparator()
+        show.addAction("Show everything", self._show_all_nav)
+        a = m.addAction("Expand to open folder", lambda: self.settings.setValue(
+            "explorer/nav_follow", not explorer_setting(self.settings, "nav_follow", True)))
+        a.setCheckable(True)
+        a.setChecked(explorer_setting(self.settings, "nav_follow", True))
+        m.exec(pos)
+
+    def _net_mount_point(self, key):
+        if key.startswith("net:sys:"):
+            d = next((d for d in self.ctl.drives if d.id == key[8:]), None)
+            return d.mount_point if d else None
+        l_ = next((l for l in self.nav.locations if l.id == key[9:]), None)
+        return l_.mount_point if l_ else None
+
+    def _load_nav_hidden(self):
+        try:
+            return set(json.loads(self.settings.value("explorer/nav_hidden", "[]") or "[]"))
+        except ValueError:
+            return set()
+
+    def _set_nav_hidden(self, key, hidden):
+        h = self._load_nav_hidden()
+        (h.add if hidden else h.discard)(key)
+        self.settings.setValue("explorer/nav_hidden", json.dumps(sorted(h)))
+        self.nav.hidden = h
+        self._rebuild_nav()
+
+    def _show_all_nav(self):
+        self.settings.setValue("explorer/nav_hidden", "[]")
+        self.nav.hidden = set()
+        self._rebuild_nav()
 
     def _net_actions(self, m, key):
         if key.startswith("net:sys:"):
@@ -1697,11 +1759,56 @@ class ExplorerWindow(QMainWindow):
             m.addAction(t.icon("terminal"), "Open in terminal", lambda: self.open_terminal(one))
             m.addAction(t.icon("search"), "Search in this folder (instant)",
                         lambda: self.ctl.open_search("", one))
+            self._index_menu(m, one)
         if one:
             m.addAction(t.icon("rename"), "Rename", self.rename)
         m.addAction(t.icon("delete"), "Delete", lambda: self.delete())
         m.addSeparator()
         m.addAction(t.icon("properties"), "Properties", self.properties)
+
+    # -- search index from the right-click menu ---------------------------------------
+
+    def _index_menu(self, m, path):
+        """Add 'Index for fast search' (or its management) for a folder or mount."""
+        if not path or not os.path.isdir(path):
+            return
+        idx = getattr(self.ctl, "index", None)
+        if idx is None:
+            return
+        t = theme.get()
+        root = idx.indexed_root(path)
+        covering = idx.covering(path)
+        if root:
+            sub = m.addMenu(t.icon("search"), "Fast search index")
+            sub.addAction("Re-index now", lambda: idx.rescan(root, full=True))
+            content = idx.content_enabled(root)
+            a = sub.addAction("Include file contents",
+                              lambda: idx.set_drive(root, True, not content))
+            a.setCheckable(True)
+            a.setChecked(content)
+            sub.addSeparator()
+            if root.startswith("folder-"):
+                sub.addAction("Stop indexing this folder", lambda: idx.remove_folder(path))
+            else:
+                sub.addAction("Stop indexing this drive", lambda: idx.set_drive(root, False, False))
+        elif covering:
+            a = m.addAction(t.icon("search"), "Indexed for fast search (part of %s)"
+                            % idx.drives[covering[0]].name)
+            a.setEnabled(False)
+        else:
+            drive = next((d for d in self.ctl.drives if d.mount_point.rstrip("/") ==
+                          path.rstrip("/")), None)
+            if drive is not None:
+                m.addAction(t.icon("search"), "Index this drive for fast search",
+                            lambda: idx.set_drive(drive.id, True, False))
+            else:
+                m.addAction(t.icon("search"), "Index this folder for fast search",
+                            lambda: self._start_index(path))
+
+    def _start_index(self, path):
+        self.ctl.index.add_folder(path)
+        self.status.setText("Indexing %s in the background. Searches here get faster once "
+                            "it's done." % (os.path.basename(path.rstrip("/")) or path))
 
     def _paste_into(self, folder):
         md = QApplication.clipboard().mimeData()
@@ -1744,6 +1851,7 @@ class ExplorerWindow(QMainWindow):
         m.addSeparator()
         m.addAction(t.icon("terminal"), "Open in terminal", lambda: self.open_terminal(loc))
         m.addAction(t.icon("pin"), "Pin to Quick access", lambda: self.pin(loc))
+        self._index_menu(m, loc)
         m.addAction(t.icon("properties"), "Properties", self.properties)
 
     # ======================================================================
@@ -1784,19 +1892,15 @@ class ExplorerWindow(QMainWindow):
         threading.Thread(target=self._walk_search, args=(gen, root, words), daemon=True).start()
 
     def _indexed_scope(self, scope):
-        """Drive ids to search in the index if scope is on an indexed drive (or global)."""
+        """Index roots to search if scope is inside an indexed drive or folder (or global)."""
         try:
             idx = self.ctl.index
-            enabled = [d for d in self.ctl.drives if idx.is_enabled(d.id)]
         except AttributeError:
             return None
         if not scope:
-            return [d.id for d in enabled] if enabled else None
-        for d in enabled:
-            mp = d.mount_point.rstrip("/")
-            if scope == mp or scope.startswith(mp + "/"):
-                return [d.id]
-        return None
+            enabled = [i for i in idx.drives if idx.is_enabled(i)]
+            return enabled or None
+        return idx.covering(scope) or None
 
     def _walk_search(self, gen, root, words):
         batch, count, last = [], 0, time.monotonic()
@@ -1858,6 +1962,8 @@ class ExplorerWindow(QMainWindow):
             self.content.setCurrentWidget(self.details if self.view_mode == "details" else self.icons)
         elif loc:
             self.content.setCurrentWidget(self.tiles)
+        self._update_empty_message()
+        self._update_status()
 
     def _open_result(self, idx):
         path = self.results_model.item(idx.row(), 0).data(Qt.UserRole)

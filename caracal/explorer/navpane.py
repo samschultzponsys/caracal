@@ -13,6 +13,7 @@ from caracal.explorer import places, theme
 LOC = Qt.UserRole
 LAZY = Qt.UserRole + 1          # folder path whose subfolders load on expand
 PINNED = Qt.UserRole + 2        # draw a pin at the right edge (Quick access)
+SPACER = Qt.UserRole + 3        # blank gap between sections
 
 LABEL_DEFAULTS = {"quick": "Quick access", "home": "Home", "thispc": "This PC",
                   "network": "Network", "trash": "Trash", "homefolder": "Home folder"}
@@ -20,6 +21,8 @@ LABEL_DEFAULTS = {"quick": "Quick access", "home": "Home", "thispc": "This PC",
 
 class PinDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
+        if index.data(SPACER):
+            return
         super().paint(painter, option, index)
         if index.data(PINNED):
             r = option.rect
@@ -39,8 +42,11 @@ class PinDelegate(QStyledItemDelegate):
                 painter.restore()
 
     def sizeHint(self, option, index):
+        if index.data(SPACER):
+            return QSize(10, 10)
         sz = super().sizeHint(option, index)
-        return QSize(sz.width(), max(sz.height(), int(theme.get().data.get("row_height", 24))))
+        # Explorer's navigation pane is a little roomier than the file list.
+        return QSize(sz.width(), max(sz.height(), int(theme.get().data.get("row_height", 20)) + 3))
 TRASH = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"),
                      "Trash", "files")
 
@@ -72,6 +78,8 @@ class NavPane(QTreeView):
         self.locations = []     # user_mounts.Location
         self.on_drop = None
         self._expanded_keys = set()
+        self.hidden = set()     # locations the user hid from the pane
+        self.setUniformRowHeights(False)
         self.style = "win10"
         self.labels = dict(LABEL_DEFAULTS)
         self.setItemDelegate(PinDelegate(self))
@@ -126,11 +134,45 @@ class NavPane(QTreeView):
                                   "net:user:" + loc.id, lazy=loc.mount_point if up else None))
         return out
 
+    def _spacer(self):
+        it = QStandardItem("")
+        it.setData(True, SPACER)
+        it.setFlags(Qt.NoItemFlags)
+        return it
+
+    def entries(self):
+        """Everything that can be shown or hidden: [(label, loc)] in pane order."""
+        win10 = self.style == "win10"
+        out = [(self.label("quick" if win10 else "home"), "caracal:home"),
+               (self.label("thispc"), "caracal:thispc")]
+        for name, path, _icon in places.user_dirs():
+            out.append(("    " + name, path))
+        out.append(("    " + self.label("homefolder"), os.path.expanduser("~")))
+        for v in places.mounted_volumes():
+            out.append(("    " + v.label, v.path))
+        for d in self.drives:
+            out.append(("    " + d.name, "net:sys:" + d.id))
+        for l_ in self.locations:
+            out.append(("    " + l_.name, "net:user:" + l_.id))
+        out.append((self.label("network"), "caracal:network"))
+        out.append((self.label("trash"), "trash"))
+        return out
+
+    def _add(self, parent, item):
+        """Append unless the user hid it."""
+        loc = item.data(LOC) or ""
+        key = "trash" if loc in (TRASH, "trash:") else loc
+        if key not in self.hidden:
+            parent.appendRow(item)
+            return True
+        return False
+
     def rebuild(self):
         expanded = self._expanded_locations()
         self.model_.clear()
         root = self.model_.invisibleRootItem()
         win10 = self.style == "win10"
+        sections = []
         top = self._item(self.label("quick" if win10 else "home"), "quick-access" if win10 else "home",
                          "caracal:home")
         for path in self.pinned:
@@ -139,32 +181,47 @@ class NavPane(QTreeView):
                                 lazy=None, icon=self._pin_icon(path))
                 it.setData(True, PINNED)
                 top.appendRow(it)
-        root.appendRow(top)
+        if "caracal:home" not in self.hidden:
+            sections.append([top])
         if not win10:
-            for it in self._folder_items():
-                root.appendRow(it)
+            sections.append([it for it in self._folder_items() if it.data(LOC) not in self.hidden])
         pc = self._item(self.label("thispc"), "this-pc", "caracal:thispc")
         if win10:
             for it in self._folder_items():
-                pc.appendRow(it)
+                self._add(pc, it)
         for it in self._drive_items():
-            pc.appendRow(it)
+            self._add(pc, it)
         if win10:
             for it in self._network_items(True):
-                pc.appendRow(it)
-        root.appendRow(pc)
+                self._add(pc, it)
+        if "caracal:thispc" not in self.hidden:
+            sections.append([pc])
         net = self._item(self.label("network"), "network", "caracal:network")
         if not win10:
             for it in self._network_items(False):
-                net.appendRow(it)
+                self._add(net, it)
         net.appendRow(self._item("Add network location…", "add-location", "net:add"))
-        root.appendRow(net)
-        root.appendRow(self._item(self.label("trash"), "trash",
-                                  TRASH if os.path.isdir(TRASH) else "trash:"))
-        self.expand(self.model_.indexFromItem(top))
-        self.expand(self.model_.indexFromItem(pc))
-        if not win10:
-            self.expand(self.model_.indexFromItem(net))
+        tail = []
+        if "caracal:network" not in self.hidden:
+            tail.append(net)
+        trash = self._item(self.label("trash"), "trash", TRASH if os.path.isdir(TRASH) else "trash:")
+        if "trash" not in self.hidden:
+            tail.append(trash)
+        if tail:
+            sections.append(tail)
+        first = True
+        for group in sections:
+            if not group:
+                continue
+            if not first:
+                root.appendRow(self._spacer())
+            first = False
+            for it in group:
+                root.appendRow(it)
+        for item, want in ((top, True), (pc, True), (net, not win10)):
+            idx = self.model_.indexFromItem(item)
+            if idx.isValid() and want:
+                self.expand(idx)
         self._restore_expanded(expanded)
 
     def _pin_icon(self, path):
@@ -226,8 +283,9 @@ class NavPane(QTreeView):
             self.navigate.emit(loc)
 
     def _ctx(self, index, pos):
-        if index.isValid() and index.data(LOC):
-            self.context.emit(index.data(LOC), pos)
+        # Right-click works everywhere, including empty space (loc "").
+        loc = index.data(LOC) if index.isValid() else ""
+        self.context.emit(loc or "", pos)
 
     def reveal(self, loc):
         """Expand the tree down to loc and select it (Explorer's "expand to open folder").

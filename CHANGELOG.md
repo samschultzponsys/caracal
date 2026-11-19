@@ -2,6 +2,15 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [0.9] - 2026-11-20
+
+- **New folder at the top left:** a Quick Access Toolbar (Properties and New folder by default) in front of the ribbon. Use its ▾ to add Undo, Delete, Rename, Refresh or Open in terminal.
+- **Navigation pane you can tailor:** right-click any item → *Hide from navigation pane*, or right-click anywhere → *Show in navigation pane* to hide or bring back Quick access, each folder, disks, network drives, Network and Trash. Sections are spaced apart like Explorer's.
+- **Mount from the left pane:** its right-click menu has *Map network drive (SMB / NFS)…*, *Add network location (SFTP, FTP, WebDAV)…*, *Browse the network…*, and Connect / Disconnect / Edit / Remove on network drives.
+- **Index any folder for fast search:** right-click a folder, drive or mount (left pane, file list, or empty space in a folder) → *Index this folder for fast search*. Searches from the top-right box inside indexed folders then come from the index (milliseconds); everywhere else they search the disk as before. Re-index, include file contents, or stop indexing from the same menu.
+- **Preview pane on/off** button in the bottom right, next to the view buttons.
+- The status bar no longer keeps showing the last search's result count after you clear the search.
+
 ## [0.8] - 2026-11-20
 
 Explorer looks much closer to Windows Explorer (Windows 10 layout):

@@ -51,6 +51,23 @@ def on_battery():
     return has_battery and not ac_online
 
 
+class FolderRoot:
+    """Any folder the user chose to index (right-click → Index for fast search).
+    Looks enough like a mapped Drive for the indexer and the Search index tab."""
+
+    def __init__(self, path):
+        import hashlib
+        self.mount_point = path
+        self.id = "folder-" + hashlib.sha1(path.encode()).hexdigest()[:16]
+        self.name = os.path.basename(path.rstrip("/")) or path
+        self.kind = "folder"
+        self.spec = {"id": self.id, "name": self.name, "mount_point": path}
+
+    @property
+    def state(self):
+        return "connected" if os.path.isdir(self.mount_point) else "disconnected"
+
+
 class _Relay(QObject):
     progress = Signal(dict)
     finished = Signal(str, str, str)   # drive_id, kind, error
@@ -131,8 +148,57 @@ class IndexManager(QObject):
 
     # -- drives from the main window -----------------------------------------------
 
+    # -- folders the user chose to index ---------------------------------------------
+
+    def folder_paths(self):
+        try:
+            data = json.loads(self.settings.value("index/folders", "[]") or "[]")
+            return [p for p in data if isinstance(p, str)]
+        except ValueError:
+            return []
+
+    def add_folder(self, path, content=False):
+        path = os.path.abspath(path)
+        paths = self.folder_paths()
+        if path not in paths:
+            paths.append(path)
+            self.settings.setValue("index/folders", json.dumps(paths))
+        root = FolderRoot(path)
+        self.drives[root.id] = root
+        self.set_drive(root.id, True, content)
+        self.rescan(root.id, full=True)
+        return root.id
+
+    def remove_folder(self, path):
+        path = os.path.abspath(path)
+        root = FolderRoot(path)
+        self.settings.setValue("index/folders",
+                               json.dumps([p for p in self.folder_paths() if p != path]))
+        self.set_drive(root.id, False, False)
+
+    def covering(self, path):
+        """Ids of indexed roots (drives or folders) that contain path; [] if none."""
+        path = os.path.abspath(path)
+        out = []
+        for drive_id, d in self.drives.items():
+            mp = (d.mount_point or "").rstrip("/")
+            if mp and self.is_enabled(drive_id) and (path == mp or path.startswith(mp + "/")):
+                out.append(drive_id)
+        return out
+
+    def indexed_root(self, path):
+        """The indexed root id exactly at path, if any."""
+        path = os.path.abspath(path).rstrip("/")
+        for drive_id, d in self.drives.items():
+            if (d.mount_point or "").rstrip("/") == path and self.is_enabled(drive_id):
+                return drive_id
+        return None
+
     def update_drives(self, drives):
         new = {d.id: d for d in drives}
+        for p in self.folder_paths():
+            root = FolderRoot(p)
+            new[root.id] = root
         for gone in set(self.drives) - set(new):
             if self.is_enabled(gone):
                 self._cancel.add(gone)
