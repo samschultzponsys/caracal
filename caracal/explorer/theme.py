@@ -71,6 +71,7 @@ ICON_SLOTS = {
 
 DEFAULT_THEME = {
     "mode": "system",            # system | light | dark
+    "icon_theme": "",            # "" = desktop's icon theme; else a freedesktop icon theme name
     "font_family": "",           # "" = system font; e.g. a family from fonts/
     "font_size": 9,              # points; 0 = system size. Explorer uses 9 pt Segoe UI
     "accent": "#0067C0",
@@ -148,6 +149,7 @@ class Theme:
                     self.data[k] = v
         except (OSError, ValueError):
             pass
+        self.apply_icon_theme()
         self._icons = {}
         self._ext_icons = {}
         self.provider = QFileIconProvider()
@@ -159,6 +161,26 @@ class Theme:
                     fid = QFontDatabase.addApplicationFont(os.path.join(fdir, f))
                     if fid >= 0:
                         self.fonts += QFontDatabase.applicationFontFamilies(fid)
+
+    # -- icon theme (KDE / freedesktop icon packs) ----------------------------------
+
+    _desktop_icon_theme = None
+
+    def apply_icon_theme(self):
+        """Use the chosen icon theme for Caracal only (the desktop keeps its own)."""
+        if Theme._desktop_icon_theme is None:
+            Theme._desktop_icon_theme = QIcon.themeName()
+        paths = QIcon.themeSearchPaths()
+        extra = imported_icon_dir()
+        if extra not in paths:
+            QIcon.setThemeSearchPaths(paths + [extra])
+        name = self.data.get("icon_theme") or Theme._desktop_icon_theme or ""
+        if name and name != QIcon.themeName():
+            QIcon.setThemeName(name)
+        # Icons a Windows pack doesn't have still come from the desktop's theme.
+        if Theme._desktop_icon_theme and hasattr(QIcon, "setFallbackThemeName"):
+            QIcon.setFallbackThemeName(Theme._desktop_icon_theme
+                                       if name != Theme._desktop_icon_theme else "hicolor")
 
     # -- icons ---------------------------------------------------------------
 
@@ -419,3 +441,176 @@ def file_info_icon(path):
 
 def color(name):
     return QColor(get().colors()[name])
+
+
+# --------------------------------------------------------------------------
+# importing KDE / freedesktop theme downloads
+# --------------------------------------------------------------------------
+
+def imported_icon_dir():
+    return os.path.join(theme_dir(), "icon-themes")
+
+
+def _icon_theme_name(index_path):
+    """Display name of an icon theme from its index.theme, or None if it isn't one."""
+    import configparser
+    cp = configparser.RawConfigParser(strict=False, interpolation=None)
+    try:
+        cp.read(index_path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError):
+        return None
+    if not cp.has_section("Icon Theme") or not cp.has_option("Icon Theme", "Directories"):
+        return None
+    return cp.get("Icon Theme", "Name", fallback=os.path.basename(os.path.dirname(index_path)))
+
+
+def list_icon_themes():
+    """[(theme folder name, display name)] for every installed and imported icon theme."""
+    seen = {}
+    for base in QIcon.themeSearchPaths() + [imported_icon_dir()]:
+        if not os.path.isdir(base):
+            continue
+        for d in sorted(os.listdir(base)):
+            idx = os.path.join(base, d, "index.theme")
+            if d in seen or d in ("hicolor", "default", "locolor") or not os.path.isfile(idx):
+                continue
+            name = _icon_theme_name(idx)
+            if name:
+                seen[d] = name
+    return sorted(seen.items(), key=lambda kv: kv[1].lower())
+
+
+def parse_kde_colors(path):
+    """Map a KDE .colors scheme onto Explorer colors. Returns (mode, colors) or None."""
+    import configparser
+    cp = configparser.RawConfigParser(strict=False, interpolation=None)
+    try:
+        cp.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError):
+        return None
+
+    def col(section, key, default=None):
+        try:
+            parts = [int(x) for x in cp.get(section, key).split(",")[:3]]
+            return "#%02X%02X%02X" % tuple(parts)
+        except (configparser.Error, ValueError, TypeError):
+            return default
+    view_bg = col("Colors:View", "BackgroundNormal")
+    if not view_bg:
+        return None
+    win_bg = col("Colors:Window", "BackgroundNormal", view_bg)
+    text = col("Colors:View", "ForegroundNormal", "#000000")
+    sel = col("Colors:Selection", "BackgroundNormal", "#0067C0")
+    hover = col("Colors:View", "DecorationHover", sel)
+    subtle = col("Colors:View", "ForegroundInactive", text)
+    alt = col("Colors:View", "BackgroundAlternate", win_bg)
+    dark = QColor(view_bg).lightness() < 128
+    base = DEFAULT_THEME["dark" if dark else "light"]
+
+    def mix(a, b, t):
+        ca, cb = QColor(a), QColor(b)
+        return QColor(int(ca.red() + (cb.red() - ca.red()) * t),
+                      int(ca.green() + (cb.green() - ca.green()) * t),
+                      int(ca.blue() + (cb.blue() - ca.blue()) * t)).name().upper()
+    colors = dict(base)
+    colors.update({"content": view_bg, "chrome": win_bg, "field": view_bg, "text": text,
+                   "subtle": subtle, "border": mix(alt, text, 0.15),
+                   "selected": mix(view_bg, sel, 0.45), "selected_border": sel,
+                   "hover": mix(view_bg, hover, 0.2), "group": text if dark else mix(text, sel, 0.6)})
+    return ("dark" if dark else "light"), colors, sel
+
+
+MAX_IMPORT = 400 * 1024 * 1024
+
+
+def _safe_extract(archive, dest):
+    import tarfile
+    import zipfile
+    real = os.path.realpath(dest)
+    low = archive.lower()
+    if low.endswith(".zip"):
+        with zipfile.ZipFile(archive) as zf:
+            total = 0
+            for m in zf.infolist():
+                total += m.file_size
+                t = os.path.realpath(os.path.join(dest, m.filename))
+                if not (t == real or t.startswith(real + os.sep)):
+                    raise OSError("Unsafe path in archive: %s" % m.filename)
+            if total > MAX_IMPORT:
+                raise OSError("The archive is too large to import.")
+            zf.extractall(dest)
+    else:
+        with tarfile.open(archive) as tf:
+            if sum(m.size for m in tf.getmembers()) > MAX_IMPORT:
+                raise OSError("The archive is too large to import.")
+            tf.extractall(dest, filter="data")
+
+
+def import_theme(source):
+    """Import a theme download (archive, .colors file or folder) into the theme folder.
+
+    Picks up freedesktop icon themes (folders with index.theme), KDE color schemes
+    (*.colors), fonts, and loose icons named after slots. Returns a summary dict:
+    {"icon_themes": [names], "colors": [scheme files], "fonts": n, "icons": n}.
+    """
+    import shutil
+    import tempfile
+    d = ensure_theme_dir()
+    summary = {"icon_themes": [], "colors": [], "fonts": 0, "icons": 0}
+    with tempfile.TemporaryDirectory(prefix="caracal-theme-") as tmp:
+        if os.path.isdir(source):
+            root = source
+        elif source.lower().endswith(".colors"):
+            root = tmp
+            shutil.copy2(source, tmp)
+        else:
+            _safe_extract(source, tmp)
+            root = tmp
+        icon_dst = imported_icon_dir()
+        os.makedirs(icon_dst, exist_ok=True)
+        theme_dirs = set()
+        for dirpath, dirs, files in os.walk(root):
+            if "index.theme" in files and _icon_theme_name(os.path.join(dirpath, "index.theme")):
+                name = os.path.basename(dirpath.rstrip("/")) or "imported"
+                target = os.path.join(icon_dst, name)
+                if os.path.exists(target):
+                    shutil.rmtree(target)
+                shutil.copytree(dirpath, target, symlinks=True)
+                summary["icon_themes"].append(name)
+                theme_dirs.add(dirpath)
+                dirs[:] = []         # don't descend into the icon theme itself
+                continue
+            if any(dirpath.startswith(t + os.sep) for t in theme_dirs):
+                continue
+            for f in files:
+                p = os.path.join(dirpath, f)
+                low = f.lower()
+                if low.endswith(".colors"):
+                    summary["colors"].append(p)
+                elif low.endswith((".ttf", ".otf", ".ttc")):
+                    shutil.copy2(p, os.path.join(d, "fonts", f))
+                    summary["fonts"] += 1
+                elif low.endswith((".svg", ".png", ".ico")) and \
+                        (os.path.splitext(low)[0] in ICON_SLOTS or low.startswith("ext-")):
+                    shutil.copy2(p, os.path.join(d, "icons", low))
+                    summary["icons"] += 1
+        # Apply: first icon theme, first color scheme.
+        tj = os.path.join(d, "theme.json")
+        try:
+            with open(tj, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            data = {}
+        if summary["icon_themes"]:
+            data["icon_theme"] = summary["icon_themes"][0]
+        if summary["colors"]:
+            parsed = parse_kde_colors(summary["colors"][0])
+            if parsed:
+                mode, colors, accent = parsed
+                data["mode"] = mode
+                data[mode] = colors
+                data["accent"] = accent
+            summary["colors"] = [os.path.basename(c) for c in summary["colors"]]
+        with open(tj, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+    return summary

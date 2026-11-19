@@ -233,7 +233,7 @@ class ExplorerWindow(QMainWindow):
         self._saved_view = None
         self._collapsed = {}          # folder -> set(group labels the user collapsed)
 
-        self.details = QTreeView()
+        self.details = _TypeAheadTree(self)
         self.details.setObjectName("FileView")
         self.details.setModel(self.model)
         self.details.setRootIsDecorated(False)
@@ -261,7 +261,7 @@ class ExplorerWindow(QMainWindow):
         if state is not None:
             hdr.restoreState(state)
 
-        self.icons = QListView()
+        self.icons = _TypeAheadList(self)
         self.icons.setObjectName("FileView")
         self.icons.setModel(self.model)
         self.icons.setSelectionModel(self.details.selectionModel())
@@ -1021,6 +1021,8 @@ class ExplorerWindow(QMainWindow):
         m.addAction(theme.get().icon("settings"), "Options", self.ctl.preferences)
         m.addAction("Check for updates…", self.ctl.check_updates)
         m.addAction("What's new (changelog)", self.ctl.show_changelog)
+        m.addSeparator()
+        m.addAction("Exit Caracal (stop background tasks)", self.ctl.quit)
 
     # ======================================================================
     # tile pages
@@ -1401,6 +1403,32 @@ class ExplorerWindow(QMainWindow):
         except OSError:
             pass
         self.status.setText(text)
+
+    def _type_ahead(self, view, buf):
+        model = self.model
+        if model.grouped():
+            order = [e for _label, items in model.groups for e in items]
+        else:
+            order = list(model.entries)
+        if not order:
+            return
+        cur_path = model.filePath(view.currentIndex())
+        start = next((i for i, e in enumerate(order) if e.path == cur_path), -1)
+        # Same letter repeated ("ccc"): cycle among items starting with that letter.
+        cycling = len(buf) > 1 and buf == buf[0] * len(buf)
+        needle = buf[0] if cycling else buf
+        n = len(order)
+        first = start + 1 if (cycling or len(buf) == 1) else max(start, 0)
+        for k in range(n):
+            e = order[(first + k) % n]
+            if e.name.lower().startswith(needle):
+                idx = model.index_for_path(e.path)
+                if model.grouped() and idx.parent().isValid():
+                    self.details.expand(idx.parent())
+                view.selectionModel().setCurrentIndex(
+                    idx, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+                view.scrollTo(idx)
+                return
 
     def select_all(self):
         sm = self.details.selectionModel()
@@ -2009,6 +2037,39 @@ class ExplorerWindow(QMainWindow):
         if self._drives_changed in self.ctl.drive_listeners:
             self.ctl.drive_listeners.remove(self._drives_changed)
         super().closeEvent(event)
+
+
+class _TypeAhead:
+    """Explorer-style type-to-select: matches the start of item names (never group
+    headers); typing the same letter again cycles through items starting with it."""
+
+    def __init__(self, win):
+        self._win = win
+        self._buf = ""
+        self._last = 0.0
+
+    def keyboardSearch(self, text):
+        if not text or not text.isprintable():
+            return
+        now = time.monotonic()
+        interval = QApplication.keyboardInputInterval() / 1000.0
+        if now - self._last > interval:
+            self._buf = ""
+        self._last = now
+        self._buf += text.lower()
+        self._win._type_ahead(self, self._buf)
+
+
+class _TypeAheadTree(_TypeAhead, QTreeView):
+    def __init__(self, win):
+        QTreeView.__init__(self)
+        _TypeAhead.__init__(self, win)
+
+
+class _TypeAheadList(_TypeAhead, QListView):
+    def __init__(self, win):
+        QListView.__init__(self)
+        _TypeAhead.__init__(self, win)
 
 
 class FileOpRunner:

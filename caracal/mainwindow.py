@@ -156,16 +156,28 @@ class MainWindow(QMainWindow):
                     and not self.explorers:
                 self.showMinimized()
             return
-        if setting(self.settings, "tray_enabled") and QSystemTrayIcon.isSystemTrayAvailable():
+        if self.tray_wanted() and QSystemTrayIcon.isSystemTrayAvailable():
             self._update_tray()
             return
-        if not setting(self.settings, "tray_enabled"):
+        if not self.tray_wanted():
+            if self.explorers or setting(self.settings, "explorer_mode"):
+                return   # explorer mode: stay in the background without a window
+
             self.showMinimized()
             return
         QTimer.singleShot(1000, lambda: self._wait_for_tray(tries - 1))
 
+    def tray_wanted(self):
+        """Tray icon: on unless turned off, and off in explorer mode unless kept."""
+        if not setting(self.settings, "tray_enabled"):
+            return False
+        if setting(self.settings, "explorer_mode") and \
+                not setting(self.settings, "tray_in_explorer_mode"):
+            return False
+        return True
+
     def _update_tray(self):
-        want = setting(self.settings, "tray_enabled") and QSystemTrayIcon.isSystemTrayAvailable()
+        want = self.tray_wanted() and QSystemTrayIcon.isSystemTrayAvailable()
         if want and self.tray is None:
             self.tray = QSystemTrayIcon(tray_icon(setting(self.settings, "tray_icon_style")), self)
             self.tray_menu = QMenu(self)
@@ -279,6 +291,11 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def closeEvent(self, event):
+        if not self._quitting and setting(self.settings, "explorer_mode"):
+            # Explorer mode: this is just the drive manager; Caracal keeps running.
+            event.ignore()
+            self.hide()
+            return
         if (not self._quitting and self.tray is not None
                 and setting(self.settings, "close_to_tray")):
             event.ignore()
@@ -587,7 +604,7 @@ class MainWindow(QMainWindow):
         self._refresh_usage()
         self._update_actions()
         self._notify_changes()
-        if self.tray is None and self.isVisible() and setting(self.settings, "tray_enabled"):
+        if self.tray is None and self.isVisible() and self.tray_wanted():
             self._update_tray()  # e.g. the tray host appeared after we started
         self._update_tray_status()
         for fn in list(self.drive_listeners):

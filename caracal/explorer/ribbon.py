@@ -401,6 +401,7 @@ class Ribbon(QWidget):
         m.addAction("What's new (changelog)", w.ctl.show_changelog)
         m.addSeparator()
         m.addAction("Close", w.close)
+        m.addAction("Exit Caracal (stop background tasks)", w.ctl.quit)
 
     def _fill_dest_menu(self, m, kind):
         m.clear()

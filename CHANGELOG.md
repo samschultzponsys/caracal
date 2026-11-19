@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [1.1] - 2026-11-21
+
+- **Import KDE / Windows themes:** Preferences → Appearance → **Import theme…** takes a downloaded theme (.zip, .tar.gz, .tar.xz…), a KDE color scheme (.colors) or a folder, and picks out icon themes, color schemes, fonts and slot-named icons. The new **Icon theme** setting picks any installed or imported icon theme for Caracal only, or "Same as the desktop" (handy if you apply a Windows theme to all of KDE).
+- **No tray icon in explorer mode** (Preferences → Explorer → "Keep the tray icon in explorer mode" brings it back). Caracal keeps running in the background for indexing, drive notifications and "Show in folder"; **File → Exit Caracal** stops it. Closing the drive-management window no longer quits Caracal in explorer mode.
+- **Type to jump** works like Explorer: typing the start of a name selects it (group headers are skipped and collapsed groups open), and pressing the same letter again moves to the next item starting with it. Backspace goes back a folder.
+
 ## [1.0] - 2026-11-20
 
 - Updates are reachable from Explorer: the version number sits at the bottom left of the Explorer window (click it for what's new; a green dot means an update is ready), and **File → Check for updates…** / **File → What's new** are in the ribbon (in the ··· menu with the Windows 11 layout). The tray menu always has **Check for updates…**.

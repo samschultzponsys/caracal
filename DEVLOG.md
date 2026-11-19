@@ -2,6 +2,21 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v1.1: theme import, tray-less explorer mode, type-ahead
+
+- theme.import_theme(): safe extract (zip-slip check, tar filter="data", 400 MB cap) into a
+  temp dir; copies freedesktop icon themes (index.theme with Directories) to
+  explorer-theme/icon-themes/, KDE .colors → parse_kde_colors() → theme.json mode/colors/accent,
+  fonts → fonts/, slot-named images → icons/. Theme.apply_icon_theme() adds icon-themes to
+  QIcon.themeSearchPaths and setThemeName (app-wide, Caracal only) with the desktop theme as
+  fallback. list_icon_themes() for the Appearance combo ("Same as the desktop" = "").
+- Explorer mode hides the tray unless `tray_in_explorer_mode` (MainWindow.tray_wanted()). The
+  app keeps running headless; drive window close only hides it in explorer mode; File → Exit
+  Caracal = ctl.quit.
+- Type-ahead: _TypeAheadTree/_TypeAheadList override keyboardSearch → window._type_ahead():
+  names only (no group rows), expands collapsed groups, same-letter cycling. Qt's default
+  matched group headers and got "ca" wrong.
+
 ## 2026-11-20 — v1.0: updates reachable from Explorer
 
 Sam (in Explorer mode): "I see no update tool". The version label / Help menu lived only in

@@ -142,6 +142,21 @@ in the tray menu and under Network in Explorer.
 - **Default file manager:** Preferences → Explorer → "Make it the default file manager".
   The previous one is restored when you turn it off.
 - **Light/dark just for Explorer:** View → Theme.
+- **No tray icon in explorer mode** (optional); Caracal keeps working in the background, and
+  File → Exit Caracal stops it.
+
+### Windows / KDE themes
+
+Preferences → Appearance → **Import theme…** accepts a theme download from the KDE Store
+(`.zip`, `.tar.gz`, `.tar.xz`…), a KDE color scheme (`.colors`) or a folder. Caracal uses:
+
+- **icon themes** (folders with `index.theme`, e.g. Windows 10/11 icon packs): choose one under
+  **Icon theme** for Caracal only, or keep "Same as the desktop" if you apply it to all of KDE;
+- **color schemes** (`.colors`): mapped onto Explorer's colors (light or dark is detected);
+- **fonts** and **icons named after slots** (copied into the theme folder).
+
+Window decorations, Plasma themes and Kvantum styles in the same download are for KDE itself
+and are skipped.
 
 ### Custom look (theme folder)
 

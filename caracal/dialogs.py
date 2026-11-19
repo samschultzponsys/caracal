@@ -42,6 +42,7 @@ DEFAULTS = {
     "auto_check_updates": True,
     "default_bookmark": True,
     "explorer_mode": False,
+    "tray_in_explorer_mode": False,
 }
 from caracal.index_manager import INDEX_DEFAULTS  # noqa: E402
 DEFAULTS.update(INDEX_DEFAULTS)
@@ -568,6 +569,10 @@ class PreferencesDialog(QDialog):
         self.x_mode.setChecked(setting(s, "explorer_mode"))
         self.x_default = QCheckBox("Make it the default file manager (open folders and "
                                    "“Show in folder” with it)")
+        self.x_tray = QCheckBox("Keep the tray icon in explorer mode")
+        self.x_tray.setToolTip("Caracal keeps running in the background either way (indexing, "
+                               "drive notifications); File → Exit Caracal stops it.")
+        self.x_tray.setChecked(setting(s, "tray_in_explorer_mode"))
         self.x_default.setChecked(fm1.is_default())
         self.x_layout = _combo((("win10", "Windows 10 (ribbon)"), ("win11", "Windows 11 (command bar)")),
                                sv("layout", "win10"))
@@ -592,7 +597,7 @@ class PreferencesDialog(QDialog):
                               ("auto", "Automatic (1.2 MB)")), s.value("explorer/size_style", "windows"))
         self.x_terminal = QLineEdit(s.value("explorer/terminal", "") or "")
         self.x_terminal.setPlaceholderText("automatic (konsole, gnome-terminal, …)")
-        for w in (self.x_mode, self.x_default):
+        for w in (self.x_mode, self.x_default, self.x_tray):
             f.addRow(w)
         f.addRow("Layout:", self.x_layout)
         f.addRow(self.x_tabs)
@@ -625,6 +630,8 @@ class PreferencesDialog(QDialog):
         af = _form()
         self.x_theme = _combo((("system", "Follow system"), ("light", "Light"), ("dark", "Dark")),
                               t.data.get("mode", "system"))
+        self.x_icons = QComboBox()
+        self._fill_icon_themes(t.data.get("icon_theme", ""))
         from PySide6.QtWidgets import QFontComboBox
         self.x_font = QFontComboBox()
         self.x_font_default = QCheckBox("Use the system font")
@@ -651,6 +658,7 @@ class PreferencesDialog(QDialog):
         al.addWidget(self.x_accent, 1)
         al.addWidget(pick)
         af.addRow("Theme:", self.x_theme)
+        af.addRow("Icon theme:", self.x_icons)
         af.addRow(self.x_font_default)
         af.addRow("Font:", self.x_font)
         af.addRow("Font size:", self.x_font_size)
@@ -667,6 +675,12 @@ class PreferencesDialog(QDialog):
         open_btn = QPushButton("Open theme folder")
         open_btn.clicked.connect(self._open_theme_folder)
         rl.addWidget(open_btn)
+        import_btn = QPushButton("Import theme…")
+        import_btn.setToolTip("Import a downloaded theme (.zip, .tar.gz, .tar.xz), a KDE color "
+                              "scheme (.colors), or a folder: icon themes, color schemes, fonts "
+                              "and icons are picked out of it")
+        import_btn.clicked.connect(self._import_theme)
+        rl.addWidget(import_btn)
         reload_btn = QPushButton("Reload theme")
         reload_btn.setToolTip("Pick up icons and fonts you just added to the theme folder")
         reload_btn.clicked.connect(self._reload_theme)
@@ -682,6 +696,55 @@ class PreferencesDialog(QDialog):
         c = QColorDialog.getColor(QColor(self.x_accent.text() or "#0067C0"), self, "Accent color")
         if c.isValid():
             self.x_accent.setText(c.name())
+
+    def _fill_icon_themes(self, current):
+        from caracal.explorer import theme as xtheme
+        self.x_icons.clear()
+        self.x_icons.addItem("Same as the desktop", "")
+        for folder, name in xtheme.list_icon_themes():
+            self.x_icons.addItem(name if name == folder else "%s (%s)" % (name, folder), folder)
+        idx = self.x_icons.findData(current)
+        self.x_icons.setCurrentIndex(max(0, idx))
+
+    def _import_theme(self):
+        from PySide6.QtWidgets import QFileDialog
+        from caracal.explorer import theme as xtheme
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import theme", os.path.expanduser("~/Downloads"),
+            "Themes (*.zip *.tar *.tar.gz *.tgz *.tar.xz *.txz *.tar.bz2 *.colors);;All files (*)")
+        if not path:
+            return
+        try:
+            summary = xtheme.import_theme(path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Import theme", "Couldn't import it: %s" % exc)
+            return
+        t = xtheme.reload()
+        self._fill_icon_themes(t.data.get("icon_theme", ""))
+        mode_idx = self.x_theme.findData(t.data.get("mode", "system"))
+        self.x_theme.setCurrentIndex(max(0, mode_idx))
+        self.x_accent.setText(t.data.get("accent", self.x_accent.text()))
+        found = []
+        if summary["icon_themes"]:
+            found.append("icon theme: " + ", ".join(summary["icon_themes"]))
+        if summary["colors"]:
+            found.append("color scheme: " + ", ".join(summary["colors"]))
+        if summary["fonts"]:
+            found.append("%d font(s)" % summary["fonts"])
+        if summary["icons"]:
+            found.append("%d icon(s)" % summary["icons"])
+        if not found:
+            QMessageBox.information(self, "Import theme", "Nothing Caracal can use was found in "
+                                    "that file (it looks for icon themes, .colors schemes, fonts "
+                                    "and icons named after slots). Window decorations, Plasma "
+                                    "styles and Kvantum themes don't apply to an app's contents.")
+            return
+        parent = self.parent()
+        ctl = getattr(parent, "ctl", parent)
+        if hasattr(ctl, "apply_explorer_settings"):
+            ctl.apply_explorer_settings()
+        QMessageBox.information(self, "Import theme", "Imported and applied:\n\n" +
+                                "\n".join(found) + "\n\nChange anything here, then OK.")
 
     def _reload_theme(self):
         from caracal.explorer import theme as xtheme
@@ -708,6 +771,7 @@ class PreferencesDialog(QDialog):
         from caracal.explorer import theme as xtheme
         s = self.settings
         s.setValue("explorer_mode", self.x_mode.isChecked())
+        s.setValue("tray_in_explorer_mode", self.x_tray.isChecked())
         s.setValue("explorer/layout", self.x_layout.currentData())
         s.setValue("explorer/tabs", self.x_tabs.isChecked())
         s.setValue("explorer/start", self.x_start.currentData())
@@ -735,6 +799,7 @@ class PreferencesDialog(QDialog):
         data.update({"mode": self.x_theme.currentData(),
                      "font_family": "" if self.x_font_default.isChecked() else self.x_font.currentFont().family(),
                      "font_size": self.x_font_size.value(), "row_height": self.x_row.value(),
+                     "icon_theme": self.x_icons.currentData() or "",
                      "accent": self.x_accent.text().strip() or "#0067C0"})
         with open(path, "w", encoding="utf-8") as fh:
             _json.dump(data, fh, indent=2)
