@@ -1,5 +1,5 @@
 Name:           caracal
-Version:        1.2
+Version:        1.3
 Release:        1
 Summary:        Map SMB and NFS network drives as persistent systemd mounts
 License:        Apache-2.0
@@ -18,6 +18,8 @@ Requires:       qt6-qtsvg
 # Privileged changes (pkexec + polkit policy) and systemd mount units
 Requires:       polkit
 Requires:       systemd
+# pkill, to restart running copies after an upgrade
+Requires(posttrans): procps-ng
 # Kernel mount helpers for SMB and NFS
 Requires:       cifs-utils
 Requires:       nfs-utils
@@ -52,6 +54,13 @@ in root-only credential files, and never edits /etc/fstab.
 
 %install
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
+
+%posttrans
+# Caracal keeps running in the background (explorer mode, search, "Show in folder"), so a
+# running copy still has the old code loaded. Tell it to restart into the new version
+# (1.3+ restarts itself and reopens its windows; older versions simply exit).
+pkill -USR1 -x caracal >/dev/null 2>&1 || :
+pkill -USR1 -x catamount >/dev/null 2>&1 || :
 
 %files
 %license LICENSE NOTICE THIRD_PARTY_LICENSES.md

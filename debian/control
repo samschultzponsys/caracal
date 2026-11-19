@@ -18,6 +18,7 @@ Depends: ${misc:Depends},
          qt6-svg-plugins,
          pkexec | policykit-1,
          systemd,
+         procps,
          cifs-utils,
          nfs-common
 Conflicts: catamount (<< 0.8)

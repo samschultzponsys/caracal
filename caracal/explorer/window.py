@@ -1670,7 +1670,17 @@ class ExplorerWindow(QMainWindow):
         if not sources:
             return
         op = FileOpRunner(self, kind, sources, dest)
+        self._ops = [o for o in getattr(self, "_ops", []) if not o.finished] + [op]
         op.start()
+
+    def active_ops(self):
+        return [o for o in getattr(self, "_ops", []) if not o.finished]
+
+    def restore_state(self):
+        """What a restart needs to reopen this window the same way."""
+        return {"tabs": [t["loc"] for t in self.tabs_state if t.get("loc")],
+                "current": self.current_location() or "",
+                "geometry": bytes(self.saveGeometry().toBase64()).decode()}
 
     def copy_selection(self, cut=False):
         paths = self.selected_paths()

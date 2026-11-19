@@ -111,6 +111,8 @@ class MainWindow(QMainWindow):
         self._usage_inflight = set()
         self.drive_listeners = []   # Explorer windows refresh their network items
         self.explorers = []
+        self._updating = False         # the helper is installing an update right now
+        self._restart_pending = False
         self.tray = None
         self.index = IndexManager(self.settings, self)
         self.search_window = None
@@ -641,6 +643,11 @@ class MainWindow(QMainWindow):
         self._update_actions()
 
     def _helper_done(self, ok, error, reply):
+        if self._updating:
+            self._updating = False
+            if self._restart_pending:          # the package told us to restart meanwhile
+                self.restart()
+                return
         label, self._pending = self._pending, ""
         drive_id, self._pending_drive = self._pending_drive, None
         after, self._after_helper = self._after_helper, None
@@ -1008,6 +1015,14 @@ class MainWindow(QMainWindow):
             self._apply_settings()
             self.apply_explorer_settings()
 
+    def show_about(self):
+        QMessageBox.about(
+            self.dialog_parent(), "About %s" % APP_NAME,
+            "<b>%s %s</b><br>File explorer and network drive mapper."
+            "<br><br>Copyright 2026 Spazcat Enterprises<br>Licensed under the Apache License 2.0"
+            "<br><a href='https://github.com/samschultzponsys/caracal'>"
+            "github.com/samschultzponsys/caracal</a>" % (APP_NAME, __version__))
+
     def show_changelog(self):
         upd = self.updates.update
         can_install = bool(upd and self.updates.kind
@@ -1091,25 +1106,55 @@ class MainWindow(QMainWindow):
         for w in list(self.explorers):
             w.status.setText("Installing Caracal %s…" % version)
         self._after_helper = lambda _reply: self._update_installed(version)
+        self._updating = True
         self._run("install-update", {"path": path_or_error, "sha256": sha256},
                   "Installing Caracal %s" % version)
 
     def _update_installed(self, version):
-        answer = QMessageBox.question(
-            self.dialog_parent(), APP_NAME,
-            "Caracal %s is installed. Restart Caracal now to use it?" % version)
-        if answer == QMessageBox.Yes:
-            self.restart()
+        for w in list(self.explorers):
+            w.status.setText("Caracal %s is installed. Restarting…" % version)
+        self.restart()
+
+    def busy_with_files(self):
+        return any(w.active_ops() for w in self.explorers)
+
+    def restart_for_update(self, request=""):
+        """The installed files changed (package upgrade, or a newer version was launched):
+        restart into the new code, reopening the same Explorer windows. Waits for copies,
+        moves and the update install itself to finish first."""
+        if request:
+            self._restart_request = request
+        if self._restart_pending and not request:
+            return
+        self._restart_pending = True
+        if self._updating:
+            return                      # _helper_done restarts once dnf/apt is done
+        if self.busy_with_files():
+            for w in list(self.explorers):
+                w.status.setText("Caracal was updated. It restarts when file operations finish.")
+            QTimer.singleShot(2000, self._retry_restart)
+            return
+        self.restart()
+
+    def _retry_restart(self):
+        self._restart_pending = False
+        self.restart_for_update()
 
     def restart(self):
+        if getattr(self, "_restarting", False):
+            return
+        self._restarting = True
         from PySide6.QtCore import QProcess
-        from caracal.app import release_instance_lock
+        from caracal.app import release_instance_lock, save_restore_state
+        save_restore_state([w.restore_state() for w in self.explorers if w.isVisible()],
+                           getattr(self, "_restart_request", ""))
         release_instance_lock()
         launcher = "/usr/bin/caracal"
+        args = ["--restore"]
         if os.path.exists(launcher):
-            QProcess.startDetached(launcher, [])
+            QProcess.startDetached(launcher, args)
         else:
-            QProcess.startDetached(sys.executable, ["-m", "caracal"])
+            QProcess.startDetached(sys.executable, ["-m", "caracal"] + args)
         self.quit()
 
     def about(self):

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+    # Running copies still have the old code loaded: tell them to restart (see the RPM
+    # spec's %posttrans for details).
+    pkill -USR1 -x caracal >/dev/null 2>&1 || true
+    pkill -USR1 -x catamount >/dev/null 2>&1 || true
+fi
+
+#DEBHELPER#
+
+exit 0

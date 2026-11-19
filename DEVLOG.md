@@ -2,6 +2,25 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v1.3: upgrades restart running copies
+
+Sam: upgrading the RPM (even uninstall + reinstall) didn't change anything / no version
+visible. Cause: since 1.1 explorer mode keeps a headless process alive; a new launch just
+forwards to it over QLocalSocket, so the old code kept running.
+- Package scripts (RPM %posttrans, debian/caracal.postinst) run
+  `pkill -USR1 -x caracal|catamount` (comm of the shebang script). Pre-1.3 processes die
+  (default USR1 action); 1.3+ handles it: app.py sets a flag in the signal handler, a 1 s
+  QTimer calls MainWindow.restart_for_update().
+- restart_for_update waits while the helper is installing an update (_updating; killing the
+  app could take pkexec/dnf with it) and while FileOpRunners are active (window.active_ops()).
+- restart(): save_restore_state() → ~/.cache/caracal/restart.json (windows: tabs, current,
+  geometry; plus a pending request), then `caracal --restore`. The new process skips the
+  single-instance forward, takes the state (ignored if > 120 s old) and _reopen()s.
+- Second launches now send "<version>\n<request>"; a running copy with a different version
+  restarts and carries the request over (split_message() still accepts the old format).
+- File menu: About Caracal <version>. Discover shows local RPMs as "caracal-1" (it uses
+  QFileInfo.baseName of the file name) with no icon; that's Discover, not the package.
+
 ## 2026-11-21 — v1.2: every Details column, sort/group/filter by any of them
 
 Sam: "need the full suite of filters and sort by like windows has… these [Name, Date

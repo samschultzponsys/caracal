@@ -1,3 +1,10 @@
+caracal (1.3) unstable; urgency=medium
+
+  * Upgrades take effect immediately: running copies restart into the new
+    version. See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Sat, 21 Nov 2026 14:00:00 +0000
+
 caracal (1.2) unstable; urgency=medium
 
   * Every Explorer Details column; sort, group and filter by any column.

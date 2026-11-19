@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QStyle, QStyledItemDelegate, QToolButton, QVBoxLayout, QWidget,
 )
 
+from caracal import __version__
 from caracal.explorer import theme
 from caracal.explorer.model import GROUP_ROLE
 
@@ -405,6 +406,7 @@ class Ribbon(QWidget):
         m.addSeparator()
         m.addAction("Check for updates…", w.ctl.check_updates)
         m.addAction("What's new (changelog)", w.ctl.show_changelog)
+        m.addAction("About Caracal %s" % __version__, w.ctl.show_about)
         m.addSeparator()
         m.addAction("Close", w.close)
         m.addAction("Exit Caracal (stop background tasks)", w.ctl.quit)

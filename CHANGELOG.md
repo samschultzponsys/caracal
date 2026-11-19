@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [1.3] - 2026-11-21
+
+- **Updates take effect right away.** Caracal keeps running in the background (explorer mode, search, "Show in folder"), so after installing a new RPM/DEB the old version could keep answering and nothing seemed to change. Now the package tells running copies to restart, and Caracal reopens the same Explorer windows and tabs. If you're copying or moving files, it waits until they finish. Launching a newer Caracal while an older one is running also hands over to the new one. (Upgrading *to* 1.3 closes the old background copy instead; just open Caracal again.)
+- Installing an update from **File → Check for updates…** restarts automatically when it's done (no extra question).
+- **File → About Caracal** shows the version; the version is also at the bottom left of every Explorer window.
+
 ## [1.2] - 2026-11-21
 
 - **All of Explorer's Details columns.** Name, Date modified, Type and Size stay the defaults; right-click the column header (or **View → Add columns**) to add Date created, Date accessed, File extension, Filename, Folder path, Path, Attributes, Owner, Group, Permissions, Link target, picture details (Dimensions, Width, Height, Date taken, Camera maker, Camera model), music/video details (Length, Bit rate, Title, Contributing artists, Album, Genre, Year, #) and document details (Authors, Pages, Content created). **More…** opens the full list. New columns appear on the right; drag headers to reorder.
