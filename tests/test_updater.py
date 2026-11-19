@@ -5,14 +5,14 @@ import tempfile
 import unittest
 from unittest import mock
 
-from catamount import updater
+from caracal import updater
 
 RELEASE = {
     "tag_name": "v1.2", "draft": False, "prerelease": False, "body": "Notes",
     "html_url": "https://github.com/x/y/releases/tag/v1.2",
     "assets": [
-        {"name": "catamount-1.2-1.noarch.rpm", "browser_download_url": "https://e/rpm"},
-        {"name": "catamount_1.2_all.deb", "browser_download_url": "https://e/deb"},
+        {"name": "caracal-1.2-1.noarch.rpm", "browser_download_url": "https://e/rpm"},
+        {"name": "caracal_1.2_all.deb", "browser_download_url": "https://e/deb"},
         {"name": "SHA256SUMS", "browser_download_url": "https://e/sums"},
     ],
 }
@@ -33,16 +33,16 @@ class ReleaseTests(unittest.TestCase):
         rel = updater.parse_release(RELEASE)
         self.assertEqual(rel["version"], "1.2")
         self.assertEqual(updater.pick_assets(rel, "rpm"),
-                         ("catamount-1.2-1.noarch.rpm", "https://e/rpm", "https://e/sums"))
-        self.assertEqual(updater.pick_assets(rel, "deb")[0], "catamount_1.2_all.deb")
+                         ("caracal-1.2-1.noarch.rpm", "https://e/rpm", "https://e/sums"))
+        self.assertEqual(updater.pick_assets(rel, "deb")[0], "caracal_1.2_all.deb")
         self.assertIsNone(updater.pick_assets(rel, None))
         self.assertIsNone(updater.parse_release(dict(RELEASE, prerelease=True)))
         self.assertIsNone(updater.parse_release(dict(RELEASE, tag_name="nightly")))
 
     def test_sums(self):
         h = "a" * 64
-        sums = updater.parse_sha256sums("%s  catamount_1.2_all.deb\n%s *dist/x.rpm\nbad\n" % (h, h))
-        self.assertEqual(sums, {"catamount_1.2_all.deb": h, "x.rpm": h})
+        sums = updater.parse_sha256sums("%s  caracal_1.2_all.deb\n%s *dist/x.rpm\nbad\n" % (h, h))
+        self.assertEqual(sums, {"caracal_1.2_all.deb": h, "x.rpm": h})
 
 
 class CacheTests(unittest.TestCase):

@@ -4,8 +4,8 @@ import os
 import tempfile
 import unittest
 
-from catamount import model
-from catamount.model import Drive, parse_address, suggest_mount_point
+from caracal import model
+from caracal.model import Drive, parse_address, suggest_mount_point
 
 
 class AddressTests(unittest.TestCase):

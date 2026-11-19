@@ -1,7 +1,7 @@
 # Builds the RPM and DEB.
 # - Tag push (v0.1, v1.2, ...): builds and publishes to GitHub Releases.
 # - Manual run: test build only, unless "publish" is ticked: then it creates the
-#   vX.Y tag (from catamount/__init__.py) on the commit it ran on, and publishes.
+#   vX.Y tag (from caracal/__init__.py) on the commit it ran on, and publishes.
 name: Release
 
 on:
@@ -34,7 +34,7 @@ jobs:
       - name: Work out the release tag
         id: tag
         run: |
-          V=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' catamount/__init__.py)
+          V=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' caracal/__init__.py)
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
             echo "publish=true" >> "$GITHUB_OUTPUT"
@@ -83,7 +83,7 @@ jobs:
           V="${TAG#v}"
           awk -v v="$V" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "CataMount $V" \
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Caracal $V" \
               --notes-file notes.md
           fi
           gh release upload "$TAG" dist/* --clobber

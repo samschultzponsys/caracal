@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Service
+MimeType=inode/directory;
+Actions=caracalSearchHere;
+X-KDE-Priority=TopLevel
+
+[Desktop Action caracalSearchHere]
+Name=Search here (Caracal, instant)
+Icon=system-search
+Exec=caracal --search-window --folder %f

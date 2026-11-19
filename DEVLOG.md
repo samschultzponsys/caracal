@@ -2,6 +2,34 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-19 — v0.7: renamed CataMount → Caracal
+
+Sam: "rename everything", except the GitHub repo for now (REPO constant and URLs still
+point at samschultzponsys/catamount; GitHub redirects after a rename).
+- Python package `catamount/` → `caracal/`, helper → caracal-helper, bin → caracal (+ `catamount`
+  symlink), app ID com.spazcat.Caracal (desktop files, icons, metainfo, polkit
+  com.spazcat.Caracal.manage, D-Bus com.spazcat.Caracal.SearchProvider, KRunner/GNOME/file
+  manager integration files), env vars CARACAL_*, QSettings ("caracal","caracal"), paths
+  /etc/caracal, /usr/share/caracal, ~/.local/share/caracal, ~/.cache/caracal, pseudo locations
+  `caracal:home` etc.
+- **Package name transition:** 0.6's updater/helper only accept a package named "catamount",
+  so 0.7 keeps `Name: catamount` (spec) / `Package: catamount` (debian). 0.7's updater and
+  helper accept both names (PACKAGE_NAMES). **For 0.8: set spec Name: caracal with
+  `Obsoletes: catamount < 0.8` and `Provides: catamount = %{version}`; debian Source/Package
+  caracal with `Replaces: catamount (<< 0.8)`, `Breaks: catamount (<< 0.8)`,
+  `Provides: catamount`; rename debian/changelog entries' package name for new entries.**
+  build-rpm.sh reads Name from the spec; build-deb.sh copies *_all.deb; check-version accepts
+  any package name.
+- Compatibility: helper/model/user_mounts accept the old "# Managed by CataMount" /
+  "# CataMount-Id:" / "# CataMount-Spec:" headers; helper reads creds from
+  /etc/catamount/creds when /etc/caracal has none, and moves them on the next save; user
+  locations keep their `catamount-<id>.service` unit names and old secret/rclone paths until
+  re-saved.
+- `caracal/migrate.py` runs at startup: copies ~/.config/catamount/catamount.conf, moves
+  ~/.local/share/catamount (index, theme), rewrites autostart, re-points the xdg-mime default
+  and the FileManager1 service file. Idempotent.
+- Tests: 61.
+
 ## 2026-11-19 — v0.6: Explorer polish toward v1
 
 Sam: "just want to get a good v1 of the explorer built" (tray icon parked).

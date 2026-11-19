@@ -12,7 +12,7 @@ if importlib.util.find_spec("PySide6") is None:  # CI runner without Qt
 
 from PySide6.QtCore import QCoreApplication, Qt
 
-from catamount.explorer import fileops
+from caracal.explorer import fileops
 
 app = QCoreApplication.instance() or QCoreApplication([])
 

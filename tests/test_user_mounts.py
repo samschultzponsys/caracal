@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from catamount import user_mounts as um
+from caracal import user_mounts as um
 
 
 class UserMountTests(unittest.TestCase):

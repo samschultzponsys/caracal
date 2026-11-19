@@ -10,13 +10,13 @@ import unittest
 from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-loader = importlib.machinery.SourceFileLoader("catamount_helper",
-                                              os.path.join(ROOT, "helper", "catamount-helper"))
-spec_ = importlib.util.spec_from_loader("catamount_helper", loader)
+loader = importlib.machinery.SourceFileLoader("caracal_helper",
+                                              os.path.join(ROOT, "helper", "caracal-helper"))
+spec_ = importlib.util.spec_from_loader("caracal_helper", loader)
 helper = importlib.util.module_from_spec(spec_)
 loader.exec_module(helper)
 
-from catamount import model  # noqa: E402
+from caracal import model  # noqa: E402
 
 REAL_REQUIRE = helper.require_mount_helper
 
@@ -105,8 +105,8 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(mount.startswith(helper.MANAGED_HEADER + "\n" + helper.ID_PREFIX))
         self.assertIn("What=//nas.local/media\n", mount)
         self.assertIn("Type=cifs\n", mount)
-        self.assertIn("credentials=/etc/catamount/creds/%s.cred" % DRIVE_ID, mount)
-        self.assertIn("Description=CataMount: 100%% media", mount)
+        self.assertIn("credentials=/etc/caracal/creds/%s.cred" % DRIVE_ID, mount)
+        self.assertIn("Description=Caracal: 100%% media", mount)
         self.assertNotIn("[Install]", mount)
         auto = units["mnt-media.automount"]
         self.assertIn("TimeoutIdleSec=600", auto)
@@ -163,7 +163,7 @@ class ApplyTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.units = os.path.join(self.tmp, "units")
         os.makedirs(self.units)
-        self.creds = os.path.join(self.tmp, "etc", "catamount", "creds")
+        self.creds = os.path.join(self.tmp, "etc", "caracal", "creds")
         self.fstab = os.path.join(self.tmp, "fstab")
         with open(self.fstab, "w") as fh:
             fh.write("//old/share /mnt/fstabbed cifs defaults 0 0\n")
@@ -249,6 +249,30 @@ class ApplyTests(unittest.TestCase):
             helper.cmd_connect({"ids": ["11111111-2222-3333-4444-555555555555"]})
         self.assertIn("log", helper.cmd_log({"id": DRIVE_ID}))
 
+    def test_legacy_catamount_units_and_creds(self):
+        # A drive written by CataMount 0.6 (old header lines, old creds folder).
+        sp = helper.validate_spec(self.spec())
+        legacy_creds = os.path.join(self.tmp, "etc", "catamount", "creds")
+        os.makedirs(legacy_creds)
+        with open(os.path.join(legacy_creds, DRIVE_ID + ".cred"), "w") as fh:
+            fh.write("username=sam\npassword=old-secret\n")
+        for name, text in helper.render_units(sp).items():
+            text = text.replace("# Managed by Caracal", "# Managed by CataMount") \
+                .replace("# Caracal-Id: ", "# CataMount-Id: ").replace("# Caracal-Spec: ", "# CataMount-Spec: ")
+            with open(os.path.join(self.units, name), "w") as fh:
+                fh.write(text)
+        with mock.patch.object(helper, "LEGACY_CRED_DIR", legacy_creds):
+            self.assertEqual(sorted(helper.units_for(DRIVE_ID)), sorted(helper.render_units(sp)))
+            drives = model.load_drives(self.units)
+            self.assertEqual(drives[0].id, DRIVE_ID)
+            # Re-saving without a password keeps the old one and moves it to the new folder.
+            helper.cmd_apply({"spec": self.spec(), "connect": False})
+            with open(os.path.join(self.creds, DRIVE_ID + ".cred")) as fh:
+                self.assertIn("password=old-secret", fh.read())
+            self.assertFalse(os.path.exists(os.path.join(legacy_creds, DRIVE_ID + ".cred")))
+            with open(os.path.join(self.units, os.listdir(self.units)[0])) as fh:
+                self.assertTrue(fh.readline().startswith("# Managed by Caracal"))
+
     def test_missing_mount_helper(self):
         with mock.patch.object(helper.os, "access", return_value=False):
             with self.assertRaises(helper.HelperError) as ctx:
@@ -267,7 +291,7 @@ class InstallUpdateTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp)
         self.calls = []
-        self.pkg_info = "catamount 0.2"
+        self.pkg_info = "caracal 0.2"
         self.installed = "0.1"
         for p in (mock.patch.object(helper, "UPDATE_DIR", os.path.join(self.tmp, "cache")),
                   mock.patch.object(helper, "run", self.fake_run)):
@@ -291,7 +315,7 @@ class InstallUpdateTests(unittest.TestCase):
         return path, hashlib.sha256(data).hexdigest()
 
     def test_installs_verified_copy(self):
-        path, sha = self.make("catamount-0.2-1.noarch.rpm")
+        path, sha = self.make("catamount-0.2-1.noarch.rpm")   # transition-era name works too
         self.assertEqual(helper.cmd_install_update({"path": path, "sha256": sha}),
                          {"version": "0.2"})
         dnf = [c for c in self.calls if c[0] == "dnf"]
@@ -300,7 +324,7 @@ class InstallUpdateTests(unittest.TestCase):
         self.assertEqual(os.listdir(helper.UPDATE_DIR), [])  # cleaned up
 
     def test_rejections(self):
-        path, sha = self.make("catamount-0.2-1.noarch.rpm")
+        path, sha = self.make("caracal-0.2-1.noarch.rpm")
         for req in ({"path": path, "sha256": "0" * 64},
                     {"path": path, "sha256": "nothex"},
                     {"path": self.make("evil.rpm")[0], "sha256": sha},
@@ -310,7 +334,7 @@ class InstallUpdateTests(unittest.TestCase):
         self.pkg_info = "otherpkg 0.2"
         with self.assertRaises(helper.HelperError):
             helper.cmd_install_update({"path": path, "sha256": sha})
-        self.pkg_info, self.installed = "catamount 0.2", "0.2"
+        self.pkg_info, self.installed = "caracal 0.2", "0.2"
         with self.assertRaises(helper.HelperError):  # not newer
             helper.cmd_install_update({"path": path, "sha256": sha})
         self.assertFalse(any(c[0] == "dnf" for c in self.calls))

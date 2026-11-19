@@ -1,6 +1,6 @@
 # Third-party licenses
 
-CataMount itself is Apache-2.0 (see `LICENSE` and `NOTICE`). It bundles no
+Caracal itself is Apache-2.0 (see `LICENSE` and `NOTICE`). It bundles no
 third-party code. At runtime it uses these system packages, installed and
 updated by the distribution's package manager:
 
@@ -12,10 +12,10 @@ updated by the distribution's package manager:
 | SQLite | Search index (via Python's `sqlite3`) | Public domain | Part of the system Python. |
 | PyGObject | Desktop search service (optional) | LGPL-2.1-or-later | System package, unmodified. |
 
-Tools CataMount runs as separate programs (not linked, not distributed with
-CataMount): systemd (`systemctl`, `journalctl`), polkit (`pkexec`),
+Tools Caracal runs as separate programs (not linked, not distributed with
+Caracal): systemd (`systemctl`, `journalctl`), polkit (`pkexec`),
 cifs-utils, nfs-utils / nfs-common, and optionally pdftotext (poppler-utils),
-avahi-browse, smbclient. Their licenses do not affect CataMount's.
+avahi-browse, smbclient. Their licenses do not affect Caracal's.
 
-LGPL-3.0 and Apache-2.0 are compatible for this use: CataMount does not
+LGPL-3.0 and Apache-2.0 are compatible for this use: Caracal does not
 modify or statically include Qt or PySide6.

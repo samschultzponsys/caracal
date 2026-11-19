@@ -13,7 +13,7 @@ if importlib.util.find_spec("PySide6") is None:  # CI runner without Qt
 from PySide6.QtCore import QEventLoop, QSettings, QTimer
 from PySide6.QtWidgets import QApplication
 
-from catamount.explorer import model as m
+from caracal.explorer import model as m
 
 app = QApplication.instance() or QApplication([])
 

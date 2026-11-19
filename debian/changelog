@@ -1,3 +1,9 @@
+catamount (0.7) unstable; urgency=medium
+
+  * Renamed to Caracal. See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Thu, 19 Nov 2026 20:00:00 +0000
+
 catamount (0.6) unstable; urgency=medium
 
   * Explorer polish. See CHANGELOG.md.

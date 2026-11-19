@@ -1,8 +1,12 @@
-# CataMount
+# Caracal
 
-Map SMB and NFS network drives on Linux, like **Map network drive** on Windows.
+*(formerly CataMount)*
 
-CataMount creates persistent kernel mounts as systemd `.mount` / `.automount`
+A Windows Explorer-style file manager and network drive tool for Linux: map SMB, NFS,
+SFTP, FTP and WebDAV locations like **Map network drive** on Windows, browse them in an
+Explorer-style window, and search them instantly.
+
+Caracal creates persistent kernel mounts as systemd `.mount` / `.automount`
 units. It never edits `/etc/fstab`, and it shows existing fstab network mounts
 read-only.
 
@@ -25,10 +29,10 @@ read-only.
 - Free space for connected drives, Connect all / Disconnect all, duplicate a
   drive, change a saved password (offered automatically when a connect fails on a
   bad password), and a per-drive log viewer for troubleshooting.
-- Copy an existing `/etc/fstab` network mount into a CataMount drive (the fstab
+- Copy an existing `/etc/fstab` network mount into a Caracal drive (the fstab
   line itself is left for you to remove).
 - Desktop notifications when a drive fails, drops, or comes back, even without a tray.
-- Command line: `catamount --list`, `--connect`, `--disconnect`, `--connect-all`,
+- Command line: `caracal --list`, `--connect`, `--disconnect`, `--connect-all`,
   `--disconnect-all`.
 - Connect, disconnect, edit, remove and open drives; status refreshes live.
 - Lives in the system tray: the icon is grey until a drive is connected and turns
@@ -37,7 +41,7 @@ read-only.
   Optional start at login (straight into the tray).
 - Light, dark or follow-system theme.
 - **Instant search** of indexed drives (like Everything on Windows): a local index of
-  file names and, optionally, file contents, searched as you type from CataMount,
+  file names and, optionally, file contents, searched as you type from Caracal,
   KRunner, GNOME search, or the file manager's right-click menu. See below.
 - Updates itself from GitHub Releases: a green dot on the version number means
   an update is ready, and one click downloads, verifies and installs it.
@@ -50,24 +54,24 @@ Download the latest package from
 Fedora:
 
 ```bash
-sudo dnf install ./catamount-*.noarch.rpm
+sudo dnf install ./caracal-*.noarch.rpm
 ```
 
 Debian 13+ / Ubuntu 26.04+:
 
 ```bash
-sudo apt install ./catamount_*_all.deb
+sudo apt install ./caracal_*_all.deb
 ```
 
 Ubuntu 24.04 and 25.x are not supported because they don't package PySide6.
-Only Fedora and Debian/Ubuntu are supported. There is no Flatpak: CataMount
+Only Fedora and Debian/Ubuntu are supported. There is no Flatpak: Caracal
 needs root access to the host to write systemd units, run `mount`, and install
 a polkit policy, and a sandbox blocks all of that.
 
 ## Dependencies
 
 The package manager installs everything below automatically when you install
-the RPM or DEB. CataMount also checks at startup and tells you exactly what to
+the RPM or DEB. Caracal also checks at startup and tells you exactly what to
 install if something was removed.
 
 | Needed for | Fedora | Debian / Ubuntu | Kind |
@@ -97,7 +101,7 @@ You also need a polkit authentication agent. Every major desktop includes one.
 
 KDE, Cinnamon, XFCE, Budgie and Ubuntu's GNOME have a tray built in. Plain
 GNOME (Fedora Workstation, Debian GNOME) needs the AppIndicator extension. On
-Fedora it's installed with CataMount but has to be turned on once. Use
+Fedora it's installed with Caracal but has to be turned on once. Use
 **Preferences → Turn on the tray extension**, or the Extensions app, then log
 out and back in. On Debian:
 
@@ -105,13 +109,13 @@ out and back in. On Debian:
 sudo apt install gnome-shell-extension-appindicator
 ```
 
-Without a tray, CataMount works normally and closing the window quits it.
+Without a tray, Caracal works normally and closing the window quits it.
 
-## CataMount Explorer (preview)
+## Caracal Explorer (preview)
 
-A Windows Explorer-style file manager built into CataMount. Turn it on in
-**Preferences → Explorer → Use CataMount as my file explorer**; then opening
-CataMount (or clicking the tray icon) opens Explorer. Network drive management stays
+A Windows Explorer-style file manager built into Caracal. Turn it on in
+**Preferences → Explorer → Use Caracal as my file explorer**; then opening
+Caracal (or clicking the tray icon) opens Explorer. Network drive management stays
 in the tray menu and under Network in Explorer.
 
 - **Layouts:** Windows 10 (ribbon, the default) or Windows 11 (command bar). Tabs are optional.
@@ -136,7 +140,7 @@ in the tray menu and under Network in Explorer.
 ### Custom look (theme folder)
 
 Preferences → Appearance → **Open theme folder**
-(`~/.local/share/catamount/explorer-theme/`):
+(`~/.local/share/caracal/explorer-theme/`):
 
 | Put here | Does |
 |---|---|
@@ -146,14 +150,14 @@ Preferences → Appearance → **Open theme folder**
 | `theme.json` | Colors, accent, row height, font |
 | `style.qss` | Extra Qt stylesheet rules |
 
-CataMount doesn't ship Microsoft's icons or fonts; you can drop in your own copies.
+Caracal doesn't ship Microsoft's icons or fonts; you can drop in your own copies.
 
 ### SFTP / SCP, FTP, FTPS and WebDAV
 
 **Add network location** in Explorer also mounts SSH servers (SFTP, which also covers
 SCP-style access, via `sshfs`) and FTP / FTPS / WebDAV servers (via `rclone`). These are
 per-user mounts in `~/Network/…`, so no admin password is needed. Each is a systemd user
-service (`~/.config/systemd/user/catamount-<id>.service`) and can reconnect when you
+service (`~/.config/systemd/user/caracal-<id>.service`) and can reconnect when you
 sign in. Passwords are stored in files only you can read. SSH keys and the SSH agent
 are recommended for SFTP.
 
@@ -161,7 +165,7 @@ are recommended for SFTP.
 
 Searching a network share normally means the file manager crawls the whole share
 over the network, which is slow. KDE's and GNOME's own indexers skip network drives.
-CataMount keeps its own index on this computer instead, so searches answer in
+Caracal keeps its own index on this computer instead, so searches answer in
 milliseconds and never touch the network.
 
 **Turn it on:** open the **Search index** tab and tick **Names** for a drive. Tick
@@ -179,12 +183,12 @@ poppler-utils). The first crawl reads the whole share once; after that:
 
 | Where | How |
 |---|---|
-| CataMount | **Search…** in the toolbar or tray menu, or Ctrl+F |
-| Any desktop | the launcher action **Search network drives** (`catamount --search-window`). Bind it to a key: KDE lists it under System Settings → Shortcuts → CataMount; on GNOME add a custom shortcut running that command. |
+| Caracal | **Search…** in the toolbar or tray menu, or Ctrl+F |
+| Any desktop | the launcher action **Search network drives** (`caracal --search-window`). Bind it to a key: KDE lists it under System Settings → Shortcuts → Caracal; on GNOME add a custom shortcut running that command. |
 | KDE Plasma | KRunner / the application launcher: type part of a file name |
 | GNOME | Activities overview search |
-| Dolphin, Files, Nemo, Caja | right-click a folder or the background → **Search here (CataMount, instant)**. Files and Caja need nautilus-python / caja-python. |
-| Terminal | `catamount --search "budget ext:xlsx"` prints matching paths (`--json` for details) |
+| Dolphin, Files, Nemo, Caja | right-click a folder or the background → **Search here (Caracal, instant)**. Files and Caja need nautilus-python / caja-python. |
+| Terminal | `caracal --search "budget ext:xlsx"` prints matching paths (`--json` for details) |
 
 **Query syntax:** words must all appear in the name (any order, any case).
 
@@ -199,26 +203,26 @@ poppler-utils). The first crawl reads the whole share once; after that:
 | inside files | `content:invoice`, `content:"exact phrase"` (or tick **Search inside files**) |
 | wildcards | `report?.docx`, `IMG_*2026*` |
 
-The index is at `~/.local/share/catamount/index.sqlite` (only readable by you) and
+The index is at `~/.local/share/caracal/index.sqlite` (only readable by you) and
 takes roughly 350 MB per million files, more with contents. Each user on a computer
 has their own index.
 
 ## Command line
 
 ```bash
-catamount --list
+caracal --list
 ```
 
 ```bash
-catamount --connect "Media on nas"
+caracal --connect "Media on nas"
 ```
 
 ```bash
-catamount --disconnect-all
+caracal --disconnect-all
 ```
 
 ```bash
-catamount --search "budget ext:xlsx"
+caracal --search "budget ext:xlsx"
 ```
 
 A drive can be named by its name, its local folder, or its id. Connect and
@@ -235,18 +239,18 @@ automount, the drive connects whenever you have a valid ticket.
 
 | What | Where |
 |---|---|
-| GUI | `/usr/bin/catamount` (Python 3 + PySide6) |
-| Privileged helper | `/usr/libexec/catamount/catamount-helper`, run through `pkexec` |
-| polkit action | `com.spazcat.CataMount.manage` (admin password, remembered briefly) |
+| GUI | `/usr/bin/caracal` (Python 3 + PySide6) |
+| Privileged helper | `/usr/libexec/caracal/caracal-helper`, run through `pkexec` |
+| polkit action | `com.spazcat.Caracal.manage` (admin password, remembered briefly) |
 | Mount units | `/etc/systemd/system/<escaped-path>.mount` and `.automount` |
-| SMB credentials | `/etc/catamount/creds/<drive-id>.cred` (root, 0600) |
-| Preferences | `~/.config/catamount/catamount.conf` |
+| SMB credentials | `/etc/caracal/creds/<drive-id>.cred` (root, 0600) |
+| Preferences | `~/.config/caracal/caracal.conf` |
 | Sidebar bookmarks | `~/.config/gtk-3.0/bookmarks` and, if it exists, `~/.local/share/user-places.xbel` |
-| Start at login | `~/.config/autostart/com.spazcat.CataMount.desktop` (runs `catamount --tray`) |
+| Start at login | `~/.config/autostart/com.spazcat.Caracal.desktop` (runs `caracal --tray`) |
 
-Every unit CataMount writes starts with `# Managed by CataMount`, plus the
+Every unit Caracal writes starts with `# Managed by Caracal`, plus the
 drive's id and settings as a JSON comment. The unit files are the only record:
-there's no database. CataMount refuses to overwrite a unit it didn't create,
+there's no database. Caracal refuses to overwrite a unit it didn't create,
 to use a mount folder that's already in `/etc/fstab`, or to mount over a
 non-empty folder.
 
@@ -258,21 +262,21 @@ the app first if you want them gone.
 
 ## Updates
 
-CataMount checks [GitHub Releases](https://github.com/samschultzponsys/catamount/releases)
+Caracal checks [GitHub Releases](https://github.com/samschultzponsys/catamount/releases)
 at most once a day. You can turn this off in Preferences, and **Help → Check
 for updates** checks on demand. Results are cached in
-`~/.cache/catamount/update.json`. When an update exists:
+`~/.cache/caracal/update.json`. When an update exists:
 
 - the version number in the status bar shows a green dot, and the tray menu offers it;
 - clicking the version number opens the changelog with the new version's notes
   on top and an **Install** button;
-- CataMount downloads the RPM or DEB and `SHA256SUMS`, and checks the hash. The helper
+- Caracal downloads the RPM or DEB and `SHA256SUMS`, and checks the hash. The helper
   then copies the package to a root-owned folder, re-checks the hash, confirms it's a newer
-  CataMount package, and installs it with `dnf` or `apt`. You enter your admin
-  password once. CataMount then offers to restart.
+  Caracal package, and installs it with `dnf` or `apt`. You enter your admin
+  password once. Caracal then offers to restart.
 
-If you run CataMount from source, the button opens the download page instead.
-If GitHub's API rate limit is hit, CataMount waits until the limit resets and
+If you run Caracal from source, the button opens the download page instead.
+If GitHub's API rate limit is hit, Caracal waits until the limit resets and
 says so in the changelog window.
 
 ## Preferences
@@ -288,7 +292,7 @@ says so in the changelog window.
 - System tray: show tray icon, close to tray, failure/disconnect notifications,
   start in the tray at login, tray icon style (color, white or dark)
 
-Only one copy runs at a time. Launching CataMount again brings up the existing
+Only one copy runs at a time. Launching Caracal again brings up the existing
 window.
 
 ## Troubleshooting
@@ -297,7 +301,7 @@ window.
   kernel's mount error. `mount error(13)` means the user name or password is
   wrong. `(112)` / `(115)` means the server is unreachable.
 - Logs: `journalctl -u 'mnt-*.mount'`
-- Check what CataMount wrote: `grep -l "Managed by CataMount" /etc/systemd/system/*.mount`
+- Check what Caracal wrote: `grep -l "Managed by Caracal" /etc/systemd/system/*.mount`
 
 ## Development
 
@@ -306,18 +310,18 @@ python3 -m unittest -v
 ```
 
 ```bash
-PYTHONPATH=. python3 -m catamount
+PYTHONPATH=. python3 -m caracal
 ```
 
-`CATAMOUNT_UNIT_DIR`, `CATAMOUNT_FSTAB` and `CATAMOUNT_HELPER` override paths
+`CARACAL_UNIT_DIR`, `CARACAL_FSTAB` and `CARACAL_HELPER` override paths
 for testing the GUI. Packages are built by GitHub Actions
 (`.github/workflows/release.yml`) when a `v*` tag is pushed. A manual run does
 a test build only.
 
 ### Releasing
 
-1. Bump the version in `catamount/__init__.py`, `packaging/catamount.spec`,
-   `debian/changelog`, `data/com.spazcat.CataMount.metainfo.xml`, and add a
+1. Bump the version in `caracal/__init__.py`, `packaging/caracal.spec`,
+   `debian/changelog`, `data/com.spazcat.Caracal.metainfo.xml`, and add a
    `CHANGELOG.md` section. CI checks that they all match.
 2. Push a `vX.Y` tag, or run the **Release** workflow manually with
    **publish** ticked (it creates the tag from the app version). The workflow

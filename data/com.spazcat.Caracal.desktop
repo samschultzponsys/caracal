@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Caracal
+GenericName=Network Drives
+Comment=Map SMB and NFS network drives
+Exec=caracal
+Icon=com.spazcat.Caracal
+Terminal=false
+Categories=Qt;System;Network;FileTools;
+Keywords=smb;cifs;nfs;samba;network;drive;share;mount;
+StartupWMClass=caracal
+Actions=search;
+
+[Desktop Action search]
+Name=Search network drives
+Icon=system-search
+Exec=caracal --search-window

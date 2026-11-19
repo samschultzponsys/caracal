@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=com.spazcat.Caracal.SearchProvider
+Exec=/usr/bin/caracal --search-service

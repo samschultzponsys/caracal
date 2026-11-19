@@ -1,0 +1,7 @@
+[Nemo Action]
+Name=Search here (Caracal, instant)
+Comment=Instant search on indexed network drives
+Exec=caracal --search-window --folder %F
+Icon-Name=system-search
+Selection=s
+Extensions=dir;

@@ -6,7 +6,7 @@ import time
 import unittest
 import zipfile
 
-from catamount import crawler, extract, indexdb
+from caracal import crawler, extract, indexdb
 
 
 def touch(path, text="", mtime=None):
@@ -146,13 +146,13 @@ class ServiceAndCliTests(unittest.TestCase):
         import io
         import contextlib
         from unittest import mock
-        from catamount import cli, search_service
+        from caracal import cli, search_service
         with tempfile.TemporaryDirectory() as tmp:
             root = os.path.join(tmp, "share")
             touch(os.path.join(root, "a", "budget.xlsx"))
             touch(os.path.join(root, "a", "Budget 2026 final.xlsx"))
             touch(os.path.join(root, "budget"))
-            db = os.path.join(tmp, "data", "catamount", "index.sqlite")
+            db = os.path.join(tmp, "data", "caracal", "index.sqlite")
             crawler.Crawler(db, "d1", "NAS", root).scan(full=True)
             s = search_service.Searcher(db)
             names = [m[1] for m in s.krunner_matches("budget")]
@@ -163,7 +163,7 @@ class ServiceAndCliTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"XDG_DATA_HOME": os.path.join(tmp, "data")}):
                 out = io.StringIO()
                 with contextlib.redirect_stdout(out):
-                    rc = cli.main(["catamount", "--search", "final"])
+                    rc = cli.main(["caracal", "--search", "final"])
                 self.assertEqual(rc, 0)
                 self.assertEqual(out.getvalue().strip(),
                                  os.path.join(root, "a", "Budget 2026 final.xlsx"))

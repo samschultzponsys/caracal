@@ -1,6 +1,14 @@
 # Changelog
 
-All notable user-facing changes to CataMount.
+All notable user-facing changes to Caracal (called CataMount before 0.7).
+
+## [0.7] - 2026-11-19
+
+**CataMount is now Caracal.** Same app, new name, now that it's a full file explorer as well as a network drive tool.
+
+- The app, menu entries, commands (`caracal`; `catamount` still works), icons and settings folders are now called Caracal.
+- Your settings, search index, Explorer theme folder, start-at-login entry and default-file-manager choice move over automatically the first time you start it.
+- Drives, network locations and saved passwords you set up before keep working unchanged; they switch to the new names the next time you edit them.
 
 ## [0.6] - 2026-11-19
 

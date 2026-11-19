@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Caracal Explorer
+GenericName=File Manager
+Comment=Browse files and network drives
+Exec=caracal --explorer %U
+Icon=com.spazcat.Caracal
+Terminal=false
+NoDisplay=true
+MimeType=inode/directory;
+Categories=Qt;System;FileTools;FileManager;
+StartupWMClass=caracal

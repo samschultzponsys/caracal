@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from catamount import bookmarks, discovery
-from catamount.model import Drive
+from caracal import bookmarks, discovery
+from caracal.model import Drive
 
 AVAHI = """+;eth0;IPv4;NAS;_smb._tcp;local
 =;eth0;IPv4;NAS;_smb._tcp;local;nas.local;192.168.1.5;445;

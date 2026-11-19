@@ -1,0 +1,16 @@
+[Desktop Entry]
+Name=Caracal network drives
+Comment=Find files on indexed network drives
+Icon=com.spazcat.Caracal
+Type=Service
+X-KDE-ServiceTypes=Plasma/Runner
+X-KDE-PluginInfo-Author=Spazcat Enterprises
+X-KDE-PluginInfo-Name=com.spazcat.Caracal
+X-KDE-PluginInfo-Version=1.0
+X-KDE-PluginInfo-License=Apache-2.0
+X-KDE-PluginInfo-EnabledByDefault=true
+X-Plasma-API=DBus
+X-Plasma-API-Minimum-Version=2.0
+X-Plasma-DBusRunner-Service=com.spazcat.Caracal.SearchProvider
+X-Plasma-DBusRunner-Path=/krunner
+X-Plasma-Runner-Min-Letter-Count=2

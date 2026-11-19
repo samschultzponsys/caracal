@@ -1,3 +1,0 @@
-[D-BUS Service]
-Name=com.spazcat.CataMount.SearchProvider
-Exec=/usr/bin/catamount --search-service

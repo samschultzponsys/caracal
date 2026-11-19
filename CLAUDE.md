@@ -71,12 +71,12 @@ These are my defaults. Apply each one only where it fits the project type (e.g. 
 - When changing a system prompt, give the whole prompt, not just the changed lines.
 
 ## Project Notes
-- What it is: CataMount — native Linux desktop app that works like Windows' "Map network drive" for SMB and NFS shares. Creates persistent kernel mounts as systemd .mount/.automount units (never edits /etc/fstab; read-only view of existing fstab network mounts).
-- Stack: Python 3 + PySide6 (Qt 6) GUI; stdlib-only privileged helper (/usr/libexec/catamount/catamount-helper) run via pkexec/polkit (action com.spazcat.CataMount.manage). App ID com.spazcat.CataMount. Packaged as RPM (primary) and DEB.
+- What it is: Caracal (renamed from CataMount in 0.7) — native Linux desktop app: Windows Explorer-style file manager plus "Map network drive" for SMB/NFS (systemd .mount/.automount units; never edits /etc/fstab; read-only view of existing fstab network mounts), per-user SFTP/FTP/WebDAV mounts, and instant search. The GitHub repo is still named "catamount" (Sam will rename it later; GitHub redirects).
+- Stack: Python 3 + PySide6 (Qt 6) GUI (package `caracal/`); stdlib-only privileged helper (/usr/libexec/caracal/caracal-helper) run via pkexec/polkit (action com.spazcat.Caracal.manage). App ID com.spazcat.Caracal. Command `caracal` (`catamount` symlink kept). Packaged as RPM (primary) and DEB; the package's internal name is still "catamount" in 0.7 only (transition), "caracal" from 0.8.
 - Host: N/A — desktop app installed on Fedora/Debian workstations, not a server service. Don't ask.
 - Bind storage path: N/A — no Docker. Don't ask.
 - License override (if any): None — Apache 2.0, copyright holder "Spazcat Enterprises". PySide6/Shiboken6 are LGPLv3 (fine as unmodified system libs); list in THIRD_PARTY_LICENSES.md.
-- DB override (if any): No database for drive config. Unit files are the source of truth (identified by a "# Managed by CataMount" header); app preferences in QSettings (~/.config/catamount/). SMB creds in /etc/catamount/creds/<uuid>.cred (root, 0600). The instant-search index is a per-user SQLite cache (FTS5) at ~/.local/share/catamount/index.sqlite (0600), rebuildable from the shares.
+- DB override (if any): No database for drive config. Unit files are the source of truth (identified by a "# Managed by Caracal" header; the old "# Managed by CataMount" header is still recognized); app preferences in QSettings (~/.config/caracal/). SMB creds in /etc/caracal/creds/<uuid>.cred (root, 0600; old /etc/catamount/creds still read). The instant-search index is a per-user SQLite cache (FTS5) at ~/.local/share/caracal/index.sqlite (0600), rebuildable from the shares.
 - Other overrides:
   - Platforms: Fedora (primary) and Debian 13+/Ubuntu 26.04+ only (Ubuntu before 26.04 doesn't package PySide6). NO Flatpak — the app needs root on the host (writes /etc/systemd/system, runs systemctl/mount), must install a polkit policy in /usr/share/polkit-1/actions, depends on host cifs-utils/nfs-utils, and stores root-owned credentials; a sandbox blocks all of that and Flathub would reject it.
   - Docker and Auth sections: not applicable.

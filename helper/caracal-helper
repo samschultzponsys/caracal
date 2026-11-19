@@ -1,0 +1,802 @@
+#!/usr/bin/python3 -I
+# Caracal privileged helper.
+#
+# Copyright 2026 Spazcat Enterprises
+# SPDX-License-Identifier: Apache-2.0
+#
+# Run as root through pkexec (polkit action com.spazcat.Caracal.manage).
+# Usage: caracal-helper <command>   with a JSON request on stdin.
+# Replies with a single JSON object on stdout: {"ok": true, ...} or
+# {"ok": false, "error": "..."}.
+#
+# Standard library only. Never trusts the caller: every request is validated
+# and the unit files are rendered here, not by the GUI.
+
+import json
+import os
+import pwd
+import re
+import subprocess
+import sys
+
+UNIT_DIR = "/etc/systemd/system"
+CRED_DIR = "/etc/caracal/creds"
+LEGACY_CRED_DIR = "/etc/catamount/creds"     # CataMount (before the rename to Caracal)
+FSTAB = "/etc/fstab"
+MANAGED_HEADER = "# Managed by Caracal"
+ID_PREFIX = "# Caracal-Id: "
+SPEC_PREFIX = "# Caracal-Spec: "
+# Units written before the rename keep working: accept the old header lines too.
+MANAGED_HEADERS = (MANAGED_HEADER, "# Managed by CataMount")
+ID_PREFIXES = (ID_PREFIX, "# CataMount-Id: ")
+SPEC_VERSION = 1
+MAX_INPUT = 64 * 1024
+
+SAFE_ENV = {
+    "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+}
+
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+SERVER_RE = re.compile(r"^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9]([A-Za-z0-9._-]{0,252}))$")
+EXTRA_OPTS_RE = re.compile(r"^[A-Za-z0-9_.=,:/@+-]*$")
+CRED_FIELD_RE = re.compile(r"^[^\n\r\x00]*$")
+SMB_VERSIONS = ("", "3.1.1", "3.02", "3.0", "2.1", "2.0", "1.0")
+NFS_VERSIONS = ("", "4.2", "4.1", "4", "3")
+FORBIDDEN_EXTRA = ("credentials", "password", "pass", "user", "username",
+                   "domain", "dom", "workgroup", "x-systemd")
+
+# Mount points that may never be used directly, and trees that may never be
+# mounted into.
+DENY_EXACT = {"/", "/home", "/mnt", "/media", "/opt", "/srv", "/var", "/root",
+              "/usr/local"}
+DENY_TREES = ("/proc", "/sys", "/dev", "/run", "/boot", "/etc", "/usr/bin",
+              "/usr/sbin", "/usr/lib", "/usr/lib64", "/usr/libexec",
+              "/usr/share", "/usr/include", "/bin", "/sbin", "/lib", "/lib32",
+              "/lib64", "/var/lib", "/var/log", "/var/cache", "/var/tmp",
+              "/var/spool", "/tmp")
+
+
+class HelperError(Exception):
+    pass
+
+
+# --------------------------------------------------------------------------
+# systemd name escaping (same algorithm as `systemd-escape --path`)
+# --------------------------------------------------------------------------
+
+def escape_path(path):
+    parts = [p for p in path.split("/") if p]
+    if not parts:
+        return "-"
+    out = []
+    joined = "/".join(parts)
+    for i, ch in enumerate(joined):
+        if ch == "/":
+            out.append("-")
+        elif (ch.isascii() and (ch.isalnum() or ch in ":_.")) and not (i == 0 and ch == "."):
+            out.append(ch)
+        else:
+            out.extend("\\x%02x" % b for b in ch.encode("utf-8"))
+    return "".join(out)
+
+
+def unit_value(text):
+    """Escape a value for a unit file (specifiers and line breaks)."""
+    return text.replace("\n", " ").replace("\r", " ").replace("%", "%%")
+
+
+# --------------------------------------------------------------------------
+# validation
+# --------------------------------------------------------------------------
+
+def _str(spec, key, default=""):
+    value = spec.get(key, default)
+    if value is None:
+        value = default
+    if not isinstance(value, str):
+        raise HelperError("Field '%s' must be text." % key)
+    return value
+
+
+def _bool(spec, key, default=False):
+    value = spec.get(key, default)
+    if not isinstance(value, bool):
+        raise HelperError("Field '%s' must be true or false." % key)
+    return value
+
+
+def _int(spec, key, default, lo, hi):
+    value = spec.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+        raise HelperError("Field '%s' must be a whole number between %d and %d." % (key, lo, hi))
+    return value
+
+
+def validate_mount_point(path):
+    if not path.startswith("/"):
+        raise HelperError("The local folder must be an absolute path.")
+    if any(c in path for c in "\n\r\x00\\"):
+        raise HelperError("The local folder contains characters that are not allowed.")
+    parts = [p for p in path.split("/") if p]
+    if any(p in (".", "..") for p in parts):
+        raise HelperError("The local folder must not contain '.' or '..'.")
+    norm = "/" + "/".join(parts)
+    if norm in DENY_EXACT:
+        raise HelperError("%s cannot be used as a mount folder. Pick a folder inside it." % norm)
+    for tree in DENY_TREES:
+        if norm == tree or norm.startswith(tree + "/"):
+            raise HelperError("Mounting inside %s is not allowed." % tree)
+    if len(parts) == 2 and parts[0] == "home":
+        raise HelperError("A home folder itself cannot be used. Pick a folder inside it.")
+    if len(norm) > 1024:
+        raise HelperError("The local folder path is too long.")
+    return norm
+
+
+def validate_spec(raw):
+    if not isinstance(raw, dict):
+        raise HelperError("Invalid request.")
+    spec = {"spec_version": SPEC_VERSION}
+
+    drive_id = _str(raw, "id")
+    if not UUID_RE.match(drive_id):
+        raise HelperError("Invalid drive id.")
+    spec["id"] = drive_id
+
+    name = _str(raw, "name").strip()
+    if not name or len(name) > 200 or not CRED_FIELD_RE.match(name):
+        raise HelperError("Enter a name (up to 200 characters, single line).")
+    spec["name"] = name
+
+    kind = _str(raw, "type")
+    if kind not in ("smb", "nfs"):
+        raise HelperError("Type must be SMB or NFS.")
+    spec["type"] = kind
+
+    server = _str(raw, "server").strip()
+    if not SERVER_RE.match(server):
+        raise HelperError("Invalid server name or address.")
+    spec["server"] = server
+
+    share = _str(raw, "share").strip()
+    if not share or len(share) > 1024 or any(c in share for c in "\n\r\x00\\%"):
+        raise HelperError("Invalid share or export path.")
+    if kind == "smb":
+        share = share.strip("/")
+        if not share or any(p in ("", ".", "..") for p in share.split("/")):
+            raise HelperError("Invalid share name.")
+    else:
+        if not share.startswith("/"):
+            raise HelperError("The NFS export path must start with '/'.")
+        if any(p in (".", "..") for p in share.split("/")):
+            raise HelperError("Invalid NFS export path.")
+    spec["share"] = share
+
+    spec["mount_point"] = validate_mount_point(_str(raw, "mount_point"))
+    spec["automount"] = _bool(raw, "automount", True)
+    spec["idle_timeout"] = _int(raw, "idle_timeout", 0, 0, 7 * 24 * 3600)
+    spec["start_at_boot"] = _bool(raw, "start_at_boot", True)
+    spec["read_only"] = _bool(raw, "read_only", False)
+    spec["bookmark"] = _bool(raw, "bookmark", False)  # per-user sidebar entry, GUI-managed
+
+    extra = _str(raw, "extra_options").strip().strip(",")
+    if not EXTRA_OPTS_RE.match(extra):
+        raise HelperError("Extra options may only contain letters, digits and _ . = , : / @ + -")
+    for opt in filter(None, extra.split(",")):
+        key = opt.split("=", 1)[0].lower()
+        if key in FORBIDDEN_EXTRA or key.startswith("x-systemd"):
+            raise HelperError("The option '%s' cannot be set as an extra option." % key)
+    spec["extra_options"] = extra
+
+    if kind == "smb":
+        smb = raw.get("smb") or {}
+        if not isinstance(smb, dict):
+            raise HelperError("Invalid SMB settings.")
+        version = _str(smb, "version")
+        if version not in SMB_VERSIONS:
+            raise HelperError("Unsupported SMB version.")
+        username = _str(smb, "username").strip()
+        domain = _str(smb, "domain").strip()
+        for label, value in (("User name", username), ("Domain", domain)):
+            if len(value) > 256 or not CRED_FIELD_RE.match(value):
+                raise HelperError("%s is not valid." % label)
+        guest = _bool(smb, "guest", False)
+        kerberos = _bool(smb, "kerberos", False)
+        seal = _bool(smb, "seal", False)
+        all_users = _bool(smb, "all_users", False)
+        if guest and kerberos:
+            raise HelperError("Choose either guest access or Kerberos, not both.")
+        if not guest and not kerberos and not username:
+            raise HelperError("Enter a user name, or choose guest access.")
+        if kerberos and username and not re.match(r"^[A-Za-z0-9._@$-]+$", username):
+            raise HelperError("With Kerberos the user name may only contain letters, digits "
+                              "and . _ @ $ -")
+        default_uid = int(os.environ.get("PKEXEC_UID", "0") or 0)
+        uid = _int(smb, "uid", default_uid, 0, 2**31 - 1)
+        try:
+            default_gid = pwd.getpwuid(uid).pw_gid
+        except KeyError:
+            default_gid = uid
+        gid = _int(smb, "gid", default_gid, 0, 2**31 - 1)
+        spec["smb"] = {"version": version, "username": username, "domain": domain,
+                       "guest": guest, "kerberos": kerberos, "seal": seal,
+                       "all_users": all_users,
+                       "uid": uid, "gid": gid}
+    else:
+        nfs = raw.get("nfs") or {}
+        if not isinstance(nfs, dict):
+            raise HelperError("Invalid NFS settings.")
+        version = _str(nfs, "version")
+        if version not in NFS_VERSIONS:
+            raise HelperError("Unsupported NFS version.")
+        spec["nfs"] = {"version": version, "soft": _bool(nfs, "soft", False)}
+    return spec
+
+
+# --------------------------------------------------------------------------
+# rendering
+# --------------------------------------------------------------------------
+
+def cred_path(drive_id):
+    return os.path.join(CRED_DIR, drive_id + ".cred")
+
+
+def legacy_cred_path(drive_id):
+    return os.path.join(LEGACY_CRED_DIR, drive_id + ".cred")
+
+
+def mount_source(spec):
+    if spec["type"] == "smb":
+        return "//%s/%s" % (spec["server"], spec["share"])
+    return "%s:%s" % (spec["server"], spec["share"])
+
+
+def mount_options(spec):
+    opts = ["_netdev"]
+    if spec["type"] == "smb":
+        smb = spec["smb"]
+        if smb["guest"]:
+            opts.append("guest")
+        elif smb.get("kerberos"):
+            # Uses the signed-in user's Kerberos ticket (via cifs.upcall), no stored password.
+            opts += ["sec=krb5", "cruid=%d" % smb["uid"]]
+            if smb["username"]:
+                opts.append("username=" + smb["username"])
+        else:
+            opts.append("credentials=" + cred_path(spec["id"]))
+        opts += ["uid=%d" % smb["uid"], "gid=%d" % smb["gid"], "iocharset=utf8"]
+        if smb["version"]:
+            opts.append("vers=" + smb["version"])
+        if smb.get("seal"):
+            opts.append("seal")
+        if smb.get("all_users"):
+            opts += ["file_mode=0777", "dir_mode=0777"]
+    else:
+        if spec["nfs"]["version"]:
+            opts.append("vers=" + spec["nfs"]["version"])
+        if spec["nfs"].get("soft"):
+            # Give up after ~45 s instead of hanging forever when the server goes away.
+            opts += ["soft", "timeo=150", "retrans=3"]
+    opts.append("ro" if spec["read_only"] else "rw")
+    if spec["extra_options"]:
+        opts.append(spec["extra_options"])
+    return ",".join(opts)
+
+
+def render_units(spec):
+    """Return {filename: content} for the drive's unit files."""
+    base = escape_path(spec["mount_point"])
+    desc = unit_value("Caracal: %s" % spec["name"])
+    fstype = "cifs" if spec["type"] == "smb" else "nfs"
+    header = [MANAGED_HEADER, ID_PREFIX + spec["id"]]
+
+    mount = header + [
+        SPEC_PREFIX + json.dumps(spec, sort_keys=True, separators=(",", ":")),
+        "",
+        "[Unit]",
+        "Description=" + desc,
+        "Wants=network-online.target",
+        "After=network-online.target",
+        "",
+        "[Mount]",
+        "What=" + unit_value(mount_source(spec)),
+        "Where=" + unit_value(spec["mount_point"]),
+        "Type=" + fstype,
+        "Options=" + unit_value(mount_options(spec)),
+        "TimeoutSec=30",
+    ]
+    units = {}
+    if spec["automount"]:
+        auto = header + [
+            "",
+            "[Unit]",
+            "Description=" + desc,
+            "",
+            "[Automount]",
+            "Where=" + unit_value(spec["mount_point"]),
+        ]
+        if spec["idle_timeout"]:
+            auto.append("TimeoutIdleSec=%d" % spec["idle_timeout"])
+        auto += ["", "[Install]", "WantedBy=remote-fs.target"]
+        units[base + ".automount"] = "\n".join(auto) + "\n"
+    else:
+        mount += ["", "[Install]", "WantedBy=remote-fs.target"]
+    units[base + ".mount"] = "\n".join(mount) + "\n"
+    return units
+
+
+# --------------------------------------------------------------------------
+# filesystem / systemd helpers
+# --------------------------------------------------------------------------
+
+def read_header(path):
+    """Return the Caracal id of a managed unit file, '' if unmanaged."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            first = fh.readline().rstrip("\n")
+            second = fh.readline().rstrip("\n")
+    except OSError:
+        return ""
+    if first not in MANAGED_HEADERS:
+        return ""
+    for prefix in ID_PREFIXES:
+        if second.startswith(prefix):
+            return second[len(prefix):].strip()
+    return "?"
+
+
+def managed_units():
+    """Return {unit_name: drive_id} for every Caracal unit file."""
+    found = {}
+    try:
+        names = os.listdir(UNIT_DIR)
+    except OSError:
+        return found
+    for name in names:
+        if not (name.endswith(".mount") or name.endswith(".automount")):
+            continue
+        path = os.path.join(UNIT_DIR, name)
+        if os.path.islink(path) or not os.path.isfile(path):
+            continue
+        drive_id = read_header(path)
+        if drive_id:
+            found[name] = drive_id
+    return found
+
+
+def units_for(drive_id):
+    return sorted(n for n, i in managed_units().items() if i == drive_id)
+
+
+def fstab_mount_points():
+    points = set()
+    try:
+        with open(FSTAB, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                fields = line.split()
+                if len(fields) >= 2:
+                    target = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), fields[1])
+                    points.add(target.rstrip("/") or "/")
+    except OSError:
+        pass
+    return points
+
+
+def run(*args, check=True):
+    proc = subprocess.run(list(args), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, env=SAFE_ENV, text=True)
+    if check and proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout).strip() or "%s failed" % args[0]
+        raise HelperError(msg)
+    return proc
+
+
+def systemctl(*args, check=True):
+    return run("systemctl", *args, check=check)
+
+
+def journal_tail(unit, lines=12):
+    proc = run("journalctl", "-u", unit, "-n", str(lines), "--no-pager", "-o", "cat",
+               "--since", "-2min", check=False)
+    return proc.stdout.strip()
+
+
+def start_unit(unit):
+    proc = systemctl("start", unit, check=False)
+    if proc.returncode != 0:
+        detail = journal_tail(unit)
+        msg = "Could not connect (%s)." % unit
+        if detail:
+            msg += "\n\n" + detail
+        raise HelperError(msg)
+
+
+def stop_units(names):
+    """Stop automount first, then mount. Raise if a mount is busy."""
+    order = sorted(names, key=lambda n: 0 if n.endswith(".automount") else 1)
+    for unit in order:
+        proc = systemctl("stop", unit, check=False)
+        if proc.returncode != 0:
+            raise HelperError("Could not disconnect %s. Close any files or windows "
+                              "using the drive and try again.\n\n%s"
+                              % (unit, (proc.stderr or "").strip()))
+
+
+def write_file(path, content, mode):
+    directory = os.path.dirname(path)
+    tmp = os.path.join(directory, ".%s.tmp-%d" % (os.path.basename(path), os.getpid()))
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def remove_file(path):
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+def read_creds(path):
+    creds = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                key, sep, value = line.rstrip("\n").partition("=")
+                if sep:
+                    creds[key.strip()] = value
+    except OSError:
+        pass
+    return creds
+
+
+def write_creds(drive_id, username, password, domain):
+    os.makedirs(CRED_DIR, mode=0o700, exist_ok=True)
+    os.chmod(os.path.dirname(CRED_DIR), 0o755)
+    os.chmod(CRED_DIR, 0o700)
+    lines = ["username=" + username, "password=" + password]
+    if domain:
+        lines.append("domain=" + domain)
+    write_file(cred_path(drive_id), "\n".join(lines) + "\n", 0o600)
+
+
+# --------------------------------------------------------------------------
+# commands
+# --------------------------------------------------------------------------
+
+def find_drive(req):
+    drive_id = req.get("id")
+    if not isinstance(drive_id, str) or not UUID_RE.match(drive_id):
+        raise HelperError("Invalid drive id.")
+    names = units_for(drive_id)
+    if not names:
+        raise HelperError("That drive is not managed by Caracal (it may have been removed).")
+    return drive_id, names
+
+
+def primary_unit(names):
+    autos = [n for n in names if n.endswith(".automount")]
+    return autos[0] if autos else [n for n in names if n.endswith(".mount")][0]
+
+
+MOUNT_HELPERS = {"smb": ("mount.cifs", "cifs-utils"), "nfs": ("mount.nfs", "nfs-utils / nfs-common")}
+
+
+def require_mount_helper(kind):
+    tool, pkg = MOUNT_HELPERS[kind]
+    for d in ("/usr/sbin", "/sbin", "/usr/bin", "/bin"):
+        if os.access(os.path.join(d, tool), os.X_OK):
+            return
+    raise HelperError("%s is not installed, so %s shares cannot be mounted. "
+                      "Install the %s package." % (tool, kind.upper(), pkg))
+
+
+def cmd_apply(req):
+    spec = validate_spec(req.get("spec"))
+    if req.get("connect", True):
+        require_mount_helper(spec["type"])
+    password = req.get("password")
+    if password is not None and (not isinstance(password, str) or not CRED_FIELD_RE.match(password)):
+        raise HelperError("The password cannot contain line breaks.")
+    connect = req.get("connect", True)
+    if not isinstance(connect, bool):
+        raise HelperError("Invalid request.")
+
+    drive_id = spec["id"]
+    new_units = render_units(spec)
+    base = escape_path(spec["mount_point"])
+    managed = managed_units()
+
+    # Refuse to clobber anything we do not own.
+    for suffix in (".mount", ".automount"):
+        name = base + suffix
+        path = os.path.join(UNIT_DIR, name)
+        if os.path.lexists(path):
+            owner = managed.get(name)
+            if not owner:
+                raise HelperError("%s already exists and was not created by Caracal. "
+                                  "Pick a different local folder." % path)
+            if owner != drive_id:
+                raise HelperError("Another Caracal drive already uses %s." % spec["mount_point"])
+    if spec["mount_point"] in fstab_mount_points():
+        raise HelperError("%s is already used in /etc/fstab." % spec["mount_point"])
+
+    mp = spec["mount_point"]
+    old_units = sorted(n for n, i in managed.items() if i == drive_id)
+    if os.path.lexists(mp):
+        if os.path.islink(mp) or not os.path.isdir(mp):
+            raise HelperError("%s exists and is not a folder." % mp)
+        ours_mounted = bool(old_units) and base + ".mount" in old_units
+        if not os.path.ismount(mp) and os.listdir(mp) and not ours_mounted:
+            raise HelperError("%s is not empty. Pick an empty or new folder so nothing "
+                              "gets hidden under the drive." % mp)
+
+    # Stop the drive's current units (needed for any change to take effect).
+    if old_units:
+        stop_units(old_units)
+        for name in old_units:
+            systemctl("disable", name, check=False)
+            if name not in new_units:
+                remove_file(os.path.join(UNIT_DIR, name))
+
+    # Credentials.
+    cpath = cred_path(drive_id)
+    if spec["type"] == "smb" and not spec["smb"]["guest"] and not spec["smb"]["kerberos"]:
+        existing = read_creds(cpath) or read_creds(legacy_cred_path(drive_id))
+        if password is None:
+            if "password" not in existing:
+                raise HelperError("Enter the password for this share.")
+            password = existing["password"]
+        write_creds(drive_id, spec["smb"]["username"], password, spec["smb"]["domain"])
+        remove_file(legacy_cred_path(drive_id))   # moved to the new folder
+    else:
+        remove_file(cpath)
+        remove_file(legacy_cred_path(drive_id))
+
+    for name, content in new_units.items():
+        write_file(os.path.join(UNIT_DIR, name), content, 0o644)
+    systemctl("daemon-reload")
+    for name in new_units:
+        systemctl("reset-failed", name, check=False)
+
+    primary = primary_unit(list(new_units))
+    if spec["start_at_boot"]:
+        systemctl("enable", primary)
+    else:
+        systemctl("disable", primary, check=False)
+
+    if connect:
+        if spec["automount"]:
+            systemctl("start", primary)
+        # Mount right away so bad credentials or an unreachable server show up now.
+        start_unit(base + ".mount")
+    return {"units": sorted(new_units)}
+
+
+def _connect_one(names):
+    primary = primary_unit(names)
+    if primary.endswith(".automount"):
+        systemctl("start", primary)
+    mount = [n for n in names if n.endswith(".mount")][0]
+    start_unit(mount)
+
+
+def _for_each(req, action):
+    """Run action(names) for req["id"], or for every id in req["ids"] (batch).
+
+    A batch never stops at the first failure; it reports per-drive errors instead.
+    """
+    if "ids" not in req:
+        _, names = find_drive(req)
+        action(names)
+        return {}
+    ids = req.get("ids")
+    if not isinstance(ids, list) or len(ids) > 200:
+        raise HelperError("Invalid request.")
+    failed = {}
+    for drive_id in ids:
+        try:
+            _, names = find_drive({"id": drive_id})
+            action(names)
+        except HelperError as exc:
+            failed[str(drive_id)] = str(exc)
+    if failed and len(failed) == len(ids):
+        raise HelperError("\n\n".join(failed.values()))
+    return {"failed": failed}
+
+
+def cmd_connect(req):
+    return _for_each(req, _connect_one)
+
+
+def cmd_disconnect(req):
+    return _for_each(req, stop_units)
+
+
+def cmd_log(req):
+    """Recent journal lines for a drive, for users who can't read the system journal."""
+    _, names = find_drive(req)
+    args = ["journalctl", "--no-pager", "-o", "short-iso", "-n", "200"]
+    for n in names:
+        args += ["-u", n]
+    proc = run(*args, check=False)
+    return {"log": (proc.stdout or proc.stderr)[-60000:]}
+
+
+def cmd_remove(req):
+    drive_id, names = find_drive(req)
+    stop_units(names)
+    where = None
+    for name in names:
+        systemctl("disable", name, check=False)
+        path = os.path.join(UNIT_DIR, name)
+        if name.endswith(".mount"):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    for line in fh:
+                        if line.startswith("Where="):
+                            where = line[6:].strip().replace("%%", "%")
+            except OSError:
+                pass
+        remove_file(path)
+    remove_file(cred_path(drive_id))
+    remove_file(legacy_cred_path(drive_id))
+    systemctl("daemon-reload", check=False)
+    for name in names:
+        systemctl("reset-failed", name, check=False)
+    if req.get("remove_folder", True) and where:
+        try:
+            validate_mount_point(where)
+            if not os.path.ismount(where):
+                os.rmdir(where)  # only succeeds if empty
+        except (OSError, HelperError):
+            pass
+    return {}
+
+
+UPDATE_DIR = "/var/cache/caracal/update"
+UPDATE_NAME_RE = re.compile(r"^(?:caracal|catamount)(?:-(\d+\.\d+)-\d+\.noarch\.rpm|_(\d+\.\d+)_all\.deb)$")
+PACKAGE_NAMES = ("caracal", "catamount")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+MAX_PACKAGE = 100 * 1024 * 1024
+
+
+def _version_tuple(text):
+    m = re.match(r"^(\d+)\.(\d+)", text or "")
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def installed_version(kind):
+    for pkg in PACKAGE_NAMES:
+        if kind == "rpm":
+            proc = run("rpm", "-q", "--qf", "%{VERSION}", pkg, check=False)
+        else:
+            proc = run("dpkg-query", "-W", "-f=${Version}", pkg, check=False)
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    return ""
+
+
+def cmd_install_update(req):
+    import hashlib
+    path = req.get("path")
+    expected = req.get("sha256")
+    if not isinstance(path, str) or not path.startswith("/") or "\x00" in path:
+        raise HelperError("Invalid update file.")
+    if not isinstance(expected, str) or not SHA256_RE.match(expected):
+        raise HelperError("Invalid checksum.")
+    name = os.path.basename(path)
+    m = UPDATE_NAME_RE.match(name)
+    if not m:
+        raise HelperError("That file is not a Caracal package.")
+    version = m.group(1) or m.group(2)
+    kind = "rpm" if name.endswith(".rpm") else "deb"
+
+    # Read the user's file once, check it, then work only on our own root-owned copy.
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as fh:
+            data = fh.read(MAX_PACKAGE + 1)
+    except OSError as exc:
+        raise HelperError("Could not read the update file: %s" % exc.strerror)
+    if len(data) > MAX_PACKAGE:
+        raise HelperError("The update file is too large.")
+    if hashlib.sha256(data).hexdigest() != expected:
+        raise HelperError("The update file's checksum doesn't match. Nothing was installed.")
+
+    os.makedirs(UPDATE_DIR, mode=0o755, exist_ok=True)
+    os.chmod(UPDATE_DIR, 0o755)
+    copy = os.path.join(UPDATE_DIR, name)
+    remove_file(copy)
+    fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+    try:
+        if kind == "rpm":
+            pkg = run("rpm", "-qp", "--qf", "%{NAME} %{VERSION}", copy, check=False).stdout.split()
+        else:
+            pkg = [run("dpkg-deb", "-f", copy, "Package", check=False).stdout.strip(),
+                   run("dpkg-deb", "-f", copy, "Version", check=False).stdout.strip()]
+        if len(pkg) != 2 or pkg[0] not in PACKAGE_NAMES or pkg[1] != version:
+            raise HelperError("The update file is not a valid Caracal %s package." % version)
+        current = _version_tuple(installed_version(kind))
+        if current and _version_tuple(version) <= current:
+            raise HelperError("Caracal %s is not newer than the installed version." % version)
+
+        if kind == "rpm":
+            proc = run("dnf", "install", "-y", copy, check=False)
+            out = proc.stdout + proc.stderr
+            if proc.returncode != 0 and ("gpg" in out.lower() or "signature" in out.lower()
+                                         or "openpgp" in out.lower()):
+                # Release packages are unsigned; the SHA256SUMS match above vouches for them.
+                proc = run("dnf", "install", "-y", "--nogpgcheck", copy, check=False)
+        else:
+            proc = run("env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y",
+                       "-o", "Dpkg::Options::=--force-confold", copy, check=False)
+        if proc.returncode != 0:
+            tail = "\n".join((proc.stdout + proc.stderr).strip().splitlines()[-15:])
+            raise HelperError("The package manager could not install the update.\n\n" + tail)
+    finally:
+        remove_file(copy)
+    return {"version": version}
+
+
+COMMANDS = {
+    "apply": cmd_apply,
+    "connect": cmd_connect,
+    "disconnect": cmd_disconnect,
+    "remove": cmd_remove,
+    "log": cmd_log,
+    "install-update": cmd_install_update,
+}
+
+
+def reply(obj, code):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+    sys.exit(code)
+
+
+def main(argv):
+    if len(argv) != 2 or argv[1] not in COMMANDS:
+        reply({"ok": False, "error": "usage: caracal-helper {%s}" % "|".join(COMMANDS)}, 2)
+    if os.geteuid() != 0:
+        reply({"ok": False, "error": "The helper must run as root (through pkexec)."}, 1)
+    os.umask(0o022)
+    try:
+        data = sys.stdin.read(MAX_INPUT + 1)
+        if len(data) > MAX_INPUT:
+            raise HelperError("Request too large.")
+        req = json.loads(data or "{}")
+        if not isinstance(req, dict):
+            raise HelperError("Invalid request.")
+        result = COMMANDS[argv[1]](req)
+    except HelperError as exc:
+        reply({"ok": False, "error": str(exc)}, 1)
+    except (ValueError, json.JSONDecodeError):
+        reply({"ok": False, "error": "Invalid request."}, 1)
+    except Exception as exc:  # report, never dump a traceback with secrets
+        reply({"ok": False, "error": "Unexpected error: %s" % type(exc).__name__}, 1)
+    result = dict(result or {})
+    result["ok"] = True
+    reply(result, 0)
+
+
+if __name__ == "__main__":
+    main(sys.argv)

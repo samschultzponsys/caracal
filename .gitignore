@@ -21,6 +21,7 @@ build/
 *.buildinfo
 *.changes
 SHA256SUMS
+debian/caracal/
 debian/catamount/
 debian/.debhelper/
 debian/debhelper-build-stamp
