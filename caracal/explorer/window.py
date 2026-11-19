@@ -1967,7 +1967,8 @@ class ExplorerWindow(QMainWindow):
             m.addAction("Open in new window", lambda: self.ctl.open_explorer(one))
         if one and fsinfo.isfile(one):
             ow = m.addMenu("Open with")
-            mt = QMimeDatabase().mimeTypeForFile(one)
+            mt = QMimeDatabase().mimeTypeForFile(one, QMimeDatabase.MatchExtension if fsinfo.is_remote(one)
+                                                 else QMimeDatabase.MatchDefault)
             for app in openwith.apps_for([mt.name()] + mt.allAncestors())[:12]:
                 ow.addAction(_app_icon(app.icon), app.name, lambda a=app: a.launch([one]))
             ow.addSeparator()
@@ -1979,6 +1980,7 @@ class ExplorerWindow(QMainWindow):
         if one and fileops.is_archive(one):
             m.addAction(t.icon("open"), "Extract all…", lambda: self.extract(one))
         m.addAction(t.icon("new"), "Compress to ZIP file", lambda: self.compress(paths))
+        self._sevenzip_menu(m, paths)
         m.addSeparator()
         m.addAction(t.icon("cut"), "Cut", lambda: self.copy_selection(cut=True))
         m.addAction(t.icon("copy"), "Copy", lambda: self.copy_selection())
@@ -2000,6 +2002,20 @@ class ExplorerWindow(QMainWindow):
         m.addAction(t.icon("delete"), "Delete", lambda: self.delete())
         m.addSeparator()
         m.addAction(t.icon("properties"), "Properties", self.properties)
+
+    def _sevenzip_menu(self, m, paths):
+        where = self.settings.value("explorer/sevenzip_menu", "submenu") or "submenu"
+        if where == "off" or not paths or self.in_trash():
+            return
+        from caracal.explorer import sevenzip
+        if not hasattr(self, "sevenzip"):
+            self.sevenzip = sevenzip.SevenZip(self)
+        if where == "flat":
+            m.addSeparator()
+            self.sevenzip.fill(m, paths)
+            m.addSeparator()
+        else:
+            self.sevenzip.fill(m.addMenu(sevenzip.menu_icon(), "7-Zip"), paths)
 
     # -- search index from the right-click menu ---------------------------------------
 

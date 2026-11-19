@@ -2,6 +2,29 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v1.5: 7-Zip menu, light-on-dark fixes, ribbon tabs
+
+Sam (screenshots, light Explorer on KDE dark): Preferences combo list white-on-white, ribbon
+icons invisible, black checkboxes, doubled ▾; wants Home/Share/View obviously clickable;
+keep Caracal's own context menu and embed 7-Zip like Windows.
+- Theme.apply_app_palette(): when Explorer mode is Light/Dark, QApplication palette =
+  Explorer palette (restored to the saved system palette for "Follow system";
+  is_dark() falls back to Theme._system_palette, not the app palette we replaced). Popups and
+  QSS-styled widgets resolve from the app palette, which is why setPalette on the window
+  wasn't enough. QSS adds QComboBox QAbstractItemView, QToolTip, dialog item views.
+- icon_variant(name, dark): picks the installed light/dark sibling icon theme (suffixes
+  -dark/_dark/-light/_light) in apply_icon_theme(); app-wide, Caracal only.
+- Ribbon tabs: objectName RibbonTab, QSS accent top border on hover/checked, hand cursor.
+  #RibbonPanel QToolButton::menu-indicator hidden (text already has ▾).
+- explorer/sevenzip.py: find_exe (7zz/7z/7za/p7zip libexec), pure arg builders (tested),
+  Job = QProcess with -bsp1 progress parsing, LC_ALL=C.UTF-8, password written to stdin
+  (twice for `a -p`), stdin closed otherwise so a needed password fails fast ("Break
+  signaled") → needs_password() → QInputDialog → retry. Progress dialog appears after
+  600 ms. SevenZip.fill() builds the menu; window._sevenzip_menu() honors
+  explorer/sevenzip_menu (submenu|flat|off). Not shown in Trash.
+- Open with now sniffs MIME by content only for local files (extension for remote).
+- Packaging: Recommends (7zip or p7zip-plugins) / 7zip | p7zip-full.
+
 ## 2026-11-21 — v1.4: responsiveness on network shares
 
 Sam: QAT buttons "static"; red/green dots for mounts; detect faster NFS vs SMB; UI slow with

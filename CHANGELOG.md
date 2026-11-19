@@ -2,6 +2,13 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [1.5] - 2026-11-21
+
+- **7-Zip in the right-click menu**, laid out like 7-Zip on Windows: *Open archive*, *Extract files…*, *Extract Here*, *Extract to "name/"*, *Test archive*, *Add to archive…* (7z, zip, tar, wim, xz/gzip/bzip2; compression level; split into volumes; password with encrypted file names; delete files after compression), *Add to "name.7z"* / *"name.zip"*, *Compress and email* (when xdg-email is available), and *CRC SHA* (CRC-32, CRC-64, SHA-1, SHA-256, all). Jobs run in the background with progress and Cancel; encrypted archives ask for the password (passwords are passed to 7-Zip privately, not on its command line). Needs the **7zip** package (Fedora: `7zip` or `p7zip-plugins`; Debian/Ubuntu: `7zip`), which is now a recommended dependency. Preferences → Explorer → *7-Zip commands* chooses a submenu (default), items directly in the menu, or off.
+- **Light Explorer on a dark desktop (and the reverse) looks right everywhere:** dialogs, dropdown lists (white-on-white text in Preferences), checkboxes (drawn black), tooltips and menus now use Explorer's colors. Icons switch to the matching light/dark version of your icon theme (e.g. Breeze ↔ Breeze-Dark, Papirus ↔ Papirus-Dark), so ribbon icons no longer vanish.
+- **Home / Share / View tabs look clickable:** hover highlight with an accent bar, a pointing-hand cursor, and the open tab is marked.
+- Ribbon menu buttons show a single ▾ (no more doubled arrows).
+
 ## [1.4] - 2026-11-21
 
 - **No more lock-ups on network shares.** Explorer no longer waits on a slow or unreachable SMB/NFS/SFTP server: folder listings, the left pane, file icons, the status bar, menus and theme changes all stay responsive. A share that stops answering is shown as not responding instead of freezing the window, and is retried after 30 seconds.

@@ -149,6 +149,7 @@ class Theme:
                     self.data[k] = v
         except (OSError, ValueError):
             pass
+        self.apply_app_palette()
         self.apply_icon_theme()
         self._icons = {}
         self._ext_icons = {}
@@ -166,6 +167,26 @@ class Theme:
     # -- icon theme (KDE / freedesktop icon packs) ----------------------------------
 
     _desktop_icon_theme = None
+    _system_palette = None
+    _palette_applied = False
+
+    def apply_app_palette(self):
+        """With Explorer set to Light or Dark (not "Follow system"), give all of Caracal's
+        windows, dialogs, menus and dropdowns Explorer's colors. Only setting it on the
+        Explorer window left popups and stylesheet-drawn widgets (combo lists, checkboxes)
+        in the desktop's colors: white text on white in light mode on a dark desktop.
+        The desktop and other apps are not affected."""
+        app = QApplication.instance()
+        if app is None:
+            return
+        if Theme._system_palette is None:
+            Theme._system_palette = QPalette(app.palette())
+        if self.data.get("mode", "system") in ("light", "dark"):
+            app.setPalette(self.palette())
+            Theme._palette_applied = True
+        elif Theme._palette_applied:
+            app.setPalette(Theme._system_palette)
+            Theme._palette_applied = False
 
     def apply_icon_theme(self):
         """Use the chosen icon theme for Caracal only (the desktop keeps its own)."""
@@ -176,6 +197,9 @@ class Theme:
         if extra not in paths:
             QIcon.setThemeSearchPaths(paths + [extra])
         name = self.data.get("icon_theme") or Theme._desktop_icon_theme or ""
+        # Breeze-Dark's icons are light-colored and vanish on a light Explorer (and the
+        # other way round): use the theme's light/dark sibling to match Explorer's mode.
+        name = icon_variant(name, self.is_dark())
         if name and name != QIcon.themeName():
             QIcon.setThemeName(name)
         # Icons a Windows pack doesn't have still come from the desktop's theme.
@@ -272,7 +296,7 @@ class Theme:
             scheme = hints.colorScheme()
             if scheme != Qt.ColorScheme.Unknown:
                 return scheme == Qt.ColorScheme.Dark
-        pal = QApplication.palette()
+        pal = Theme._system_palette or QApplication.palette()
         return pal.color(QPalette.Window).lightness() < 128
 
     def palette(self):
@@ -370,6 +394,13 @@ class Theme:
         #RibbonTabs {{ background: {c['chrome']}; }}
         #RibbonTabs QToolButton {{ border: none; padding: 2px 10px; color: {c['text']}; }}
         #RibbonTabs QToolButton:hover {{ background: {c['hover']}; }}
+        #RibbonTabs QToolButton#RibbonTab {{ padding: 3px 14px 4px 14px; margin: 2px 1px 0 1px;
+            border: 1px solid transparent; border-top: 2px solid transparent;
+            border-bottom: none; color: {c['text']}; }}
+        #RibbonTabs QToolButton#RibbonTab:hover {{ background: {c['hover']};
+            border-color: {c['border']}; border-top: 2px solid {accent}; }}
+        #RibbonTabs QToolButton#RibbonTab:checked {{ background: {c['content']};
+            border-color: {c['border']}; border-top: 2px solid {accent}; }}
         #RibbonTabs #QAT QToolButton {{ padding: 2px 4px; border: 1px solid transparent; }}
         #RibbonTabs #QAT QToolButton:hover {{ background: {c['hover']}; border: 1px solid {c['border']}; }}
         #RibbonTabs #QAT QToolButton:pressed {{ background: {c['border']}; }}
@@ -437,6 +468,14 @@ class Theme:
             border: 1px solid {c['border']}; border-bottom: none; border-top-left-radius: {r}px;
             border-top-right-radius: {r}px; }}
         QDialog QTabBar::tab:selected {{ background: {c['content']}; }}
+        QComboBox QAbstractItemView {{ background: {c['content']}; color: {c['text']};
+            border: 1px solid {c['border']}; outline: 0;
+            selection-background-color: {c['hover']}; selection-color: {c['text']}; }}
+        QDialog QTreeView, QDialog QTableView, QDialog QListView {{ background: {c['content']};
+            color: {c['text']}; }}
+        QToolTip {{ background: {c['field']}; color: {c['text']}; border: 1px solid {c['border']}; }}
+        #RibbonPanel QToolButton::menu-indicator {{ image: none; width: 0; }}
+        #RibbonPanel QToolButton {{ color: {c['text']}; }}
         QMenu {{ background: {c['field']}; color: {c['text']}; border: 1px solid {c['border']};
             border-radius: {r + 2}px; padding: 4px; }}
         QMenu::item {{ padding: 6px 28px 6px 12px; border-radius: {r}px; }}
@@ -494,6 +533,43 @@ def _icon_theme_name(index_path):
     if not cp.has_section("Icon Theme") or not cp.has_option("Icon Theme", "Directories"):
         return None
     return cp.get("Icon Theme", "Name", fallback=os.path.basename(os.path.dirname(index_path)))
+
+
+def _installed_icon_themes():
+    out = {}
+    for base in QIcon.themeSearchPaths() + [imported_icon_dir()]:
+        try:
+            for d in os.listdir(base):
+                if os.path.isfile(os.path.join(base, d, "index.theme")):
+                    out.setdefault(d.lower(), d)
+        except OSError:
+            continue
+    return out
+
+
+def icon_variant(name, dark, installed=None):
+    """The light or dark sibling of icon theme `name` if one is installed
+    (breeze <-> breeze-dark, Papirus <-> Papirus-Dark, Fluent <-> Fluent-dark,
+    Win10Sur-light <-> Win10Sur-dark, ...), else `name` unchanged."""
+    if not name:
+        return name
+    installed = _installed_icon_themes() if installed is None else installed
+    low = name.lower()
+    base = low
+    for suffix in ("-dark", "_dark", " dark", "-light", "_light", " light"):
+        if low.endswith(suffix):
+            base = low[:-len(suffix)]
+            break
+    if dark:
+        candidates = [base + s for s in ("-dark", "_dark")]
+    else:
+        candidates = [base + s for s in ("-light", "_light")] + [base]
+    if (low in candidates) or (dark and low.endswith(("-dark", "_dark"))):
+        return name
+    for c in candidates:
+        if c in installed:
+            return installed[c]
+    return name
 
 
 def list_icon_themes():

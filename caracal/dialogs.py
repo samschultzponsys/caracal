@@ -641,6 +641,9 @@ class PreferencesDialog(QDialog):
         self.x_date.setToolTip("Qt date format, e.g. M/d/yyyy h:mm AP (US), dd/MM/yyyy HH:mm, yyyy-MM-dd HH:mm")
         self.x_size = _combo((("windows", "Always KB, like Windows (1,234 KB)"),
                               ("auto", "Automatic (1.2 MB)")), s.value("explorer/size_style", "windows"))
+        self.x_7zip = _combo((("submenu", "In a “7-Zip” submenu (like Windows)"),
+                              ("flat", "Directly in the right-click menu"),
+                              ("off", "Don't show")), s.value("explorer/sevenzip_menu", "submenu"))
         self.x_terminal = QLineEdit(s.value("explorer/terminal", "") or "")
         self.x_terminal.setPlaceholderText("automatic (konsole, gnome-terminal, …)")
         for w in (self.x_mode, self.x_default, self.x_tray):
@@ -653,6 +656,7 @@ class PreferencesDialog(QDialog):
             f.addRow(w)
         f.addRow("Date format:", self.x_date)
         f.addRow("File sizes:", self.x_size)
+        f.addRow("7-Zip commands:", self.x_7zip)
         f.addRow("Terminal app:", self.x_terminal)
         names = QGroupBox("Names in the navigation pane")
         nf = _form()
@@ -826,6 +830,7 @@ class PreferencesDialog(QDialog):
         s.setValue("explorer/show_hidden", self.x_hidden.isChecked())
         s.setValue("explorer/confirm_delete", self.x_confirm.isChecked())
         s.setValue("explorer/group_counts", self.x_counts.isChecked())
+        s.setValue("explorer/sevenzip_menu", self.x_7zip.currentData())
         s.setValue("explorer/date_format", self.x_date.text().strip() or "M/d/yyyy h:mm AP")
         s.setValue("explorer/size_style", self.x_size.currentData())
         s.setValue("explorer/terminal", self.x_terminal.text().strip())

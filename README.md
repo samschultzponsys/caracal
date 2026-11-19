@@ -147,6 +147,16 @@ in the tray menu and under Network in Explorer.
   for fast search*; the top-right search box then answers instantly inside it.
 - **Trash with Restore**, Extract all… / Compress to ZIP, Frequent folders, column chooser
   (right-click the header).
+- **7-Zip in the right-click menu** (like Windows): Open archive, Extract files… / Here /
+  to "name/", Test archive, Add to archive… (formats, level, volumes, password), Add to
+  "name.7z"/"name.zip", Compress and email, CRC SHA. Needs the `7zip` package; choose
+  submenu / flat / off in Preferences → Explorer.
+- **Network shares never freeze the window:** slow or unreachable servers are detected and
+  shown as not responding; a loading bar and item count show progress; network drives in the
+  left pane get green/amber/red connection dots; SMB drives whose server also exports the
+  folder over NFS get a "faster connection available" tip.
+- **Light or dark Explorer independent of the desktop**, including dialogs, menus and the
+  matching light/dark icon set.
 - **Everything else you'd expect:** breadcrumb address bar (type a path, `\\server\share`
   or `sftp://…` to connect), search box (instant on indexed drives), preview pane,
   thumbnails, Open with, Properties, templates, copy/cut/paste and drag-and-drop with

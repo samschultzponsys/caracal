@@ -108,9 +108,12 @@ class Ribbon(QWidget):
         self.tab_btns = []
         for i, name in enumerate(("Home", "Share", "View")):
             b = QToolButton()
+            b.setObjectName("RibbonTab")
             b.setText(name)
             b.setCheckable(True)
             b.setAutoRaise(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip("Show the %s commands" % name)
             b.clicked.connect(lambda _c=False, i=i: self.toggle(i))
             self.tab_btns.append(b)
             h.addWidget(b)
