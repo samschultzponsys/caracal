@@ -82,3 +82,16 @@ class ModelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DriveDialogSuggestTests(unittest.TestCase):
+    def test_prefilled_address_still_suggests_mount_point(self):
+        from caracal.dialogs import DriveDialog
+        with tempfile.TemporaryDirectory() as d:
+            s = QSettings(os.path.join(d, "s.ini"), QSettings.IniFormat)
+            dlg = DriveDialog(s, template={"type": "nfs", "server": "nas",
+                                           "share": "/mnt/tank/media"})
+            self.assertEqual(dlg.mount_point.text(), "/mnt/media")
+            dlg = DriveDialog(s, template={"type": "nfs", "server": "nas", "share": "/x/media",
+                                           "name": "Media", "mount_point": "/mnt/Media"})
+            self.assertEqual(dlg.mount_point.text(), "/mnt/Media")    # kept when given

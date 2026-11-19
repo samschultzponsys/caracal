@@ -1,5 +1,5 @@
 Name:           caracal
-Version:        1.5
+Version:        1.6
 Release:        1
 Summary:        Map SMB and NFS network drives as persistent systemd mounts
 License:        Apache-2.0

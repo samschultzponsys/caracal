@@ -1,3 +1,10 @@
+caracal (1.6) unstable; urgency=medium
+
+  * Switching a drive to NFS replaces the SMB one; mount folders default to
+    /mnt/<share>. See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Sat, 21 Nov 2026 17:00:00 +0000
+
 caracal (1.5) unstable; urgency=medium
 
   * 7-Zip in the right-click menu; light/dark fixes for dialogs, dropdowns,

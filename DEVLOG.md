@@ -2,6 +2,23 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v1.6: replace on switch, /mnt/<share> defaults
+
+Sam: "when switching to a faster method remove the old, also default the mount path to
+/mnt/%sharename%" + "its making me type a path everytime".
+- DriveDialog: _mp_touched/_name_touched now mean "a mount point / name was given in the
+  spec", not "server is prefilled" — prefilled templates (Browse, address bar, faster tip)
+  left the mount point empty. suggest_mount_point already gives <mount_root>/<share leaf>.
+- MainWindow.switch_to_faster(d, "server:/export"): DriveDialog prefilled with d's name,
+  mount point and options (not extra_options: SMB-only), then helper "remove"
+  (remove_folder False) → _after_helper → "apply" of the NFS spec (same unit names since the
+  mount point is the same, so it must be remove-then-apply). On apply failure the error box
+  says the SMB version was removed and how to restore it (_switch_fallback).
+- Helper "user-folder": creates /mnt/<name> or /media/<name> (one level, safe name, lstat,
+  never a mount, never a non-empty folder owned by someone else) owned by PKEXEC_UID.
+  LocationDialog suggests /mnt/<name> (next free -2, -3…); window.add_network_location calls
+  user-folder when the folder is missing or not writable, then saves.
+
 ## 2026-11-21 — v1.5: 7-Zip menu, light-on-dark fixes, ribbon tabs
 
 Sam (screenshots, light Explorer on KDE dark): Preferences combo list white-on-white, ribbon

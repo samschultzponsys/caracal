@@ -312,6 +312,7 @@ class LocationDialog(QDialog):
         kl.addWidget(self.key, 1)
         kl.addWidget(kb)
         self.mp = QLineEdit(spec.get("mount_point", ""))
+        self.mp.textEdited.connect(lambda _t: setattr(self, "_mp_touched", True))
         self.reconnect = QCheckBox("Reconnect when I sign in")
         self.reconnect.setChecked(spec.get("start_at_login", True))
         self.ro = QCheckBox("Read-only")
@@ -383,10 +384,16 @@ class LocationDialog(QDialog):
     def _suggest(self, *_):
         if not self._name_touched:
             self.name.setText(self.host.text().strip())
-        if not self.editing:
-            base = os.path.join(os.path.expanduser("~"), "Network")
+        if not self.editing and not getattr(self, "_mp_touched", False):
+            import re
             leaf = (self.name.text().strip() or self.host.text().strip() or "location")
-            self.mp.setText(os.path.join(base, leaf.replace("/", "-")))
+            leaf = re.sub(r"[^A-Za-z0-9._-]+", "-", leaf).strip("-.") or "location"
+            mp = "/mnt/" + leaf
+            n = 2
+            while os.path.ismount(mp) or (os.path.isdir(mp) and os.listdir(mp)):
+                mp = "/mnt/%s-%d" % (leaf, n)
+                n += 1
+            self.mp.setText(mp)
 
     def _pick_key(self):
         p, _ = QFileDialog.getOpenFileName(self, "SSH private key", os.path.expanduser("~/.ssh"))

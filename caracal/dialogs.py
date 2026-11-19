@@ -92,8 +92,11 @@ class DriveDialog(QDialog):
         smb0 = spec.get("smb", {})
         self._had_password = (self.editing and spec.get("type") == "smb"
                               and not smb0.get("guest") and not smb0.get("kerberos"))
-        self._mp_touched = prefilled
-        self._name_touched = prefilled
+        # Only a path/name that was actually given counts as chosen; otherwise keep
+        # suggesting /mnt/<share> (opening from Browse or "faster connection" used to leave
+        # the local folder empty, so it had to be typed every time).
+        self._mp_touched = bool(spec.get("mount_point"))
+        self._name_touched = bool(spec.get("name"))
 
         self.setWindowTitle(title or ("Edit network drive" if self.editing
                                       else "Map network drive"))

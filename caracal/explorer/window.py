@@ -1382,8 +1382,8 @@ class ExplorerWindow(QMainWindow):
             fast = getattr(self.ctl, "faster", {}).get(d.id)
             if fast:
                 m.addAction(theme.get().icon("drive-network"),
-                            "Faster connection available: map %s over NFS…" % fast,
-                            lambda: self.ctl.add_drive(fast, "nfs"))
+                            "Faster connection available: switch to NFS (%s)…" % fast,
+                            lambda: self.ctl.switch_to_faster(d, fast))
             m.addSeparator()
             m.addAction(theme.get().icon("properties"), "Edit…", lambda: self.ctl.edit_drive_obj(d))
             m.addAction(theme.get().icon("delete"), "Remove…", lambda: self.ctl.remove_drive_obj(d))
@@ -1482,6 +1482,18 @@ class ExplorerWindow(QMainWindow):
             return
         spec, pw = dlg.spec(), dlg.password_value()
         self.status.setText("Connecting %s…" % spec["name"])
+        mp = spec.get("mount_point", "")
+        if mp.startswith(("/mnt/", "/media/")) and not (os.path.isdir(mp) and os.access(mp, os.W_OK)):
+            # /mnt is root's: ask the helper (one password prompt) to create the folder for us
+            if self.ctl.helper.busy:
+                QMessageBox.information(self, "Explorer", "Caracal is busy; try again in a moment.")
+                return
+            self.ctl._after_helper = lambda _r: self._save_location(spec, pw)
+            self.ctl._run("user-folder", {"path": mp}, "Creating %s" % mp)
+            return
+        self._save_location(spec, pw)
+
+    def _save_location(self, spec, pw):
 
         def saved(loc, err):
             self._drives_changed()

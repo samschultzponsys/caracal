@@ -16,6 +16,7 @@ import json
 import os
 import pwd
 import re
+import stat
 import subprocess
 import sys
 
@@ -670,6 +671,46 @@ def cmd_remove(req):
     return {}
 
 
+USER_FOLDER_RE = re.compile(r"^/(mnt|media)/([A-Za-z0-9_][A-Za-z0-9 ._-]{0,63})$")
+
+
+def cmd_user_folder(req):
+    """Create /mnt/<name> (or /media/<name>) owned by the user who asked, so their own
+    SFTP/FTP/WebDAV mounts can live there like the system drives. One level only, never
+    follows symlinks, never takes over a mounted or non-empty folder owned by someone else."""
+    path = req.get("path")
+    if not isinstance(path, str):
+        raise HelperError("Invalid folder.")
+    m = USER_FOLDER_RE.match(path.rstrip("/"))
+    if not m or m.group(2).rstrip(" .") != m.group(2):
+        raise HelperError("Only a folder directly inside /mnt or /media can be created.")
+    path = path.rstrip("/")
+    uid = int(os.environ.get("PKEXEC_UID", "-1") or -1)
+    if uid <= 0:
+        raise HelperError("Couldn't tell which user asked for the folder.")
+    try:
+        gid = pwd.getpwuid(uid).pw_gid
+    except KeyError:
+        raise HelperError("Unknown user.")
+    os.makedirs("/" + m.group(1), mode=0o755, exist_ok=True)
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        os.mkdir(path, 0o755)
+        os.lchown(path, uid, gid)
+        return {"path": path}
+    if not stat.S_ISDIR(st.st_mode):
+        raise HelperError("%s exists and isn't a folder." % path)
+    if os.path.ismount(path):
+        raise HelperError("Something is already mounted at %s." % path)
+    if st.st_uid == uid:
+        return {"path": path}
+    if os.listdir(path):
+        raise HelperError("%s already exists and isn't empty. Choose another folder." % path)
+    os.lchown(path, uid, gid)
+    return {"path": path}
+
+
 UPDATE_DIR = "/var/cache/caracal/update"
 UPDATE_NAME_RE = re.compile(r"^(?:caracal|catamount)(?:-(\d+\.\d+)-\d+\.noarch\.rpm|_(\d+\.\d+)_all\.deb)$")
 PACKAGE_NAMES = ("caracal", "catamount")
@@ -764,6 +805,7 @@ COMMANDS = {
     "remove": cmd_remove,
     "log": cmd_log,
     "install-update": cmd_install_update,
+    "user-folder": cmd_user_folder,
 }
 
 

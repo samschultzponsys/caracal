@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [1.6] - 2026-11-21
+
+- **Switching to the faster connection replaces the old drive.** Right-click an SMB drive → *Faster connection available: switch to NFS…* opens the dialog with the same name, local folder and options; OK removes the SMB drive and maps the NFS export in its place, so paths and bookmarks keep working.
+- **No more typing the local folder.** The Map network drive dialog always suggests `/mnt/<share name>` (it was left empty when opened from Browse, the faster-connection tip or a typed address).
+- SFTP / FTP / WebDAV locations also default to `/mnt/<name>` instead of `~/Network/<name>`; Caracal creates the folder for you (owned by you) the first time.
+
 ## [1.5] - 2026-11-21
 
 - **7-Zip in the right-click menu**, laid out like 7-Zip on Windows: *Open archive*, *Extract files…*, *Extract Here*, *Extract to "name/"*, *Test archive*, *Add to archive…* (7z, zip, tar, wim, xz/gzip/bzip2; compression level; split into volumes; password with encrypted file names; delete files after compression), *Add to "name.7z"* / *"name.zip"*, *Compress and email* (when xdg-email is available), and *CRC SHA* (CRC-32, CRC-64, SHA-1, SHA-256, all). Jobs run in the background with progress and Cancel; encrypted archives ask for the password (passwords are passed to 7-Zip privately, not on its command line). Needs the **7zip** package (Fedora: `7zip` or `p7zip-plugins`; Debian/Ubuntu: `7zip`), which is now a recommended dependency. Preferences → Explorer → *7-Zip commands* chooses a submenu (default), items directly in the menu, or off.

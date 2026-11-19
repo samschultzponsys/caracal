@@ -696,6 +696,14 @@ class MainWindow(QMainWindow):
                 self.show_window()
             box = QMessageBox(QMessageBox.Warning, APP_NAME, label + " failed.", parent=self)
             first, _, rest = error.partition("\n\n")
+            old = getattr(self, "_switch_fallback", None)
+            if old:
+                self._switch_fallback = None
+                from caracal.model import format_remote
+                first += ("\n\nThe SMB version (%s) was already removed. Edit the NFS drive to "
+                          "fix it, or remove it and map %s again."
+                          % (format_remote("smb", old.get("server", ""), old.get("share", "")),
+                             format_remote("smb", old.get("server", ""), old.get("share", ""))))
             box.setInformativeText(first)
             if rest:
                 box.setDetailedText(rest)
@@ -783,6 +791,44 @@ class MainWindow(QMainWindow):
             spec, password = dlg.request()
             self._run("apply", {"spec": spec, "password": password, "connect": True},
                       "Connecting %s" % spec["name"], spec["id"])
+
+    def switch_to_faster(self, d, target):
+        """Replace SMB drive `d` with the same folder over NFS (`target` = "server:/export"):
+        same name, same local folder and options, and the old SMB drive is removed."""
+        from caracal.model import parse_address
+        addr = parse_address(target, "nfs")
+        if not addr.valid or self.helper.busy:
+            return
+        template = {"type": "nfs", "server": addr.server, "share": addr.share,
+                    "name": d.name, "mount_point": d.mount_point}
+        for k in ("automount", "idle_timeout", "start_at_boot", "read_only", "bookmark"):
+            if k in d.spec:
+                template[k] = d.spec[k]
+        parent = self.dialog_parent()
+        dlg = DriveDialog(self.settings, taken=[p for p in self._taken() if p != d.mount_point],
+                          parent=parent, template=template,
+                          title="Switch “%s” to NFS (faster)" % d.name)
+        if not dlg.exec():
+            return
+        spec, password = dlg.request()
+        old_spec = dict(d.spec)
+
+        def apply_new(_reply):
+            self._after_helper = lambda _r: self._switched(d.name, None)
+            self._switch_fallback = old_spec
+            QTimer.singleShot(0, lambda: self._run(
+                "apply", {"spec": spec, "password": password, "connect": True},
+                "Connecting %s over NFS" % spec["name"], spec["id"]))
+        self._after_helper = apply_new
+        self._run("remove", {"id": d.id, "remove_folder": False},
+                  "Replacing %s (SMB) with NFS" % d.name)
+
+    def _switched(self, name, _err):
+        self._switch_fallback = None
+        self.faster = {k: v for k, v in getattr(self, "faster", {}).items()
+                       if any(x.id == k for x in self.drives)}
+        for w in list(self.explorers):
+            w.status.setText("%s now connects over NFS." % name)
 
     def edit_drive(self):
         d = self.selected()

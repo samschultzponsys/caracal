@@ -342,3 +342,22 @@ class InstallUpdateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UserFolderTests(unittest.TestCase):
+    def test_rejects_anything_but_one_level_under_mnt_or_media(self):
+        for bad in ("/etc/x", "/mnt", "/mnt/a/b", "/mnt/../etc", "/mnt/.hidden", "/media/a\nb",
+                    "/home/u/x", "mnt/x", None, "/mnt/name "):
+            with self.assertRaises(helper.HelperError, msg=repr(bad)):
+                helper.cmd_user_folder({"path": bad})
+
+    @unittest.skipUnless(os.geteuid() == 0, "needs root to chown")
+    def test_creates_folder_owned_by_caller(self):
+        name = "/mnt/caracal-test-%d" % os.getpid()
+        try:
+            with mock.patch.dict(os.environ, {"PKEXEC_UID": "65534"}):
+                self.assertEqual(helper.cmd_user_folder({"path": name})["path"], name)
+                self.assertEqual(os.stat(name).st_uid, 65534)
+                helper.cmd_user_folder({"path": name})          # again: fine, already theirs
+        finally:
+            shutil.rmtree(name, ignore_errors=True)
