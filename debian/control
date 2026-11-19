@@ -1,4 +1,4 @@
-Source: catamount
+Source: caracal
 Section: admin
 Priority: optional
 Maintainer: Spazcat Enterprises <support@spazcat.com>
@@ -7,7 +7,7 @@ Standards-Version: 4.7.0
 Homepage: https://github.com/samschultzponsys/catamount
 Rules-Requires-Root: no
 
-Package: catamount
+Package: caracal
 Architecture: all
 Depends: ${misc:Depends},
          python3,
@@ -20,6 +20,9 @@ Depends: ${misc:Depends},
          systemd,
          cifs-utils,
          nfs-common
+Conflicts: catamount (<< 0.8)
+Replaces: catamount (<< 0.8)
+Provides: catamount
 Recommends: libnss-mdns, avahi-utils, smbclient, python3-gi, poppler-utils,
             sshfs, rclone, udisks2, xdg-utils
 Suggests: gnome-shell-extension-appindicator, python3-nautilus

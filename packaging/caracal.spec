@@ -1,14 +1,14 @@
-# The package keeps its old name "catamount" for this one transition release, so
-# installed 0.6 copies (whose updater only accepts "catamount") can update to it.
-# From 0.8: Name: caracal, with Obsoletes/Provides catamount.
-Name:           catamount
-Version:        0.7
+Name:           caracal
+Version:        0.8
 Release:        1
 Summary:        Map SMB and NFS network drives as persistent systemd mounts
 License:        Apache-2.0
 URL:            https://github.com/samschultzponsys/catamount
 Source0:        %{name}-%{version}.tar.gz
 BuildArch:      noarch
+# Renamed from CataMount (package "catamount", up to 0.7): replace it on upgrade.
+Obsoletes:      catamount < 0.8
+Provides:       catamount = %{version}-%{release}
 
 BuildRequires:  make
 # GUI: Python 3 + PySide6 (QtCore/QtGui/QtWidgets/QtNetwork) + SVG icon support

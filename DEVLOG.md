@@ -2,6 +2,21 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-20 — v0.8: closer to Windows 10 Explorer; package renamed to caracal
+
+Sam: "spacing and general look are not quite 1 to 1" (reference: his Win10 dark Explorer
+screenshot). Changes: theme defaults font_size 9 / row_height 20 / nav_width 180; nav icons
+16 px; ribbon strip and address bar slimmer (22-24 px, square); breadcrumb starts at the
+home sub-folder with its icon (AddressBar._segments/_icon_for); history ⌄ + refresh inside
+the address box (AddressBar.add_trailing); search magnifier trailing; QSS chevrons and
+top-center sort arrows from SVGs generated per theme into ~/.cache/caracal/ui
+(Theme.glyphs); group "group" color; children indented 10 px (GroupDelegate); columns sized
+from font metrics; preview empty state is a centered hint; 17 px square scrollbars; status
+bar on content color. `_rebuild_nav()` re-highlights the current folder after rebuilds.
+- Package rename done: spec Name caracal + Obsoletes/Provides catamount; debian
+  Source/Package caracal + Conflicts/Replaces (<< 0.8) + Provides catamount. 0.7's updater
+  looks for caracal-* assets first and its helper accepts the caracal name.
+
 ## 2026-11-19 — v0.7: renamed CataMount → Caracal
 
 Sam: "rename everything", except the GitHub repo for now (REPO constant and URLs still

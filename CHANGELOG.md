@@ -2,6 +2,20 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [0.8] - 2026-11-20
+
+Explorer looks much closer to Windows Explorer (Windows 10 layout):
+
+- Explorer-sized text (9 pt) and rows, 16 px icons in the navigation pane, slimmer ribbon tabs and address bar.
+- The address bar shows the folder trail the way Explorer does ("Downloads › …" with the folder's own icon), with the history dropdown and refresh inside the box; the search box has its magnifier on the right.
+- Thin chevrons in the navigation pane, the sort arrow centered at the top of the column header, items indented under group headers, Windows-sized columns.
+- The preview pane just says "Select a file to preview." when nothing is selected.
+- Square, Explorer-style scrollbars and a slimmer status bar.
+- The navigation pane keeps the current folder highlighted.
+- Text size is adjustable in Preferences → Appearance (set it to 0 for your desktop's size).
+
+The package is now called **caracal** and replaces the old **catamount** package automatically when you update.
+
 ## [0.7] - 2026-11-19
 
 **CataMount is now Caracal.** Same app, new name, now that it's a full file explorer as well as a network drive tool.

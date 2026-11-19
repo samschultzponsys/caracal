@@ -356,8 +356,6 @@ class DirModel(QAbstractItemModel):
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole and section < 4:
             return COLUMNS[section]
-        if orientation == Qt.Horizontal and role == Qt.TextAlignmentRole and section == SIZE:
-            return int(Qt.AlignRight | Qt.AlignVCenter)
         return None
 
     def data(self, index, role=Qt.DisplayRole):

@@ -54,7 +54,7 @@ class NavPane(QTreeView):
         self.setObjectName("NavPane")
         self.setHeaderHidden(True)
         self.setIndentation(14)
-        self.setIconSize(QSize(18, 18))
+        self.setIconSize(QSize(16, 16))
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setUniformRowHeights(True)
         self.setAnimated(True)

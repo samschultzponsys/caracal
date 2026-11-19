@@ -158,13 +158,24 @@ class ExplorerWindow(QMainWindow):
         self.address = AddressBar()
         self.address.navigate.connect(self.go)
         ah.addWidget(self.address, 1)
-        ah.addWidget(self.refresh_btn)
+        # Inside the address box, at the right: history dropdown and refresh (Explorer).
+        self.addr_drop = QToolButton()
+        self.addr_drop.setText("⌄")
+        self.addr_drop.setAutoRaise(True)
+        self.addr_drop.setToolTip("Previous locations")
+        self.addr_drop.setPopupMode(QToolButton.InstantPopup)
+        self.addr_drop.setMenu(self.recent_menu)
+        self.addr_drop.setStyleSheet("QToolButton::menu-indicator { image: none; }")
+        self.address.add_trailing(self.addr_drop)
+        self.refresh_btn.setIconSize(QSize(14, 14))
+        self.address.add_trailing(self.refresh_btn)
+        ah.setSpacing(2)
         self.search = QLineEdit()
         self.search.setObjectName("SearchBox")
         self.search.setClearButtonEnabled(True)
         self.search.setMinimumWidth(220)
         self.search.setMaximumWidth(320)
-        self.search.addAction(theme.get().icon("search"), QLineEdit.LeadingPosition)
+        self.search.addAction(theme.get().icon("search"), QLineEdit.TrailingPosition)
         self.search.textChanged.connect(lambda _t: self.search_timer.start(250))
         self.search.returnPressed.connect(self.run_search)
         ah.addWidget(self.search)
@@ -236,10 +247,11 @@ class ExplorerWindow(QMainWindow):
         self.details.setItemDelegate(GroupDelegate(self.details))
         hdr = self.details.header()
         hdr.setSectionResizeMode(QHeaderView.Interactive)
-        hdr.resizeSection(NAME, 330)
-        hdr.resizeSection(DATE, 140)
-        hdr.resizeSection(TYPE, 140)
-        hdr.resizeSection(SIZE, 90)
+        em = self.fontMetrics().averageCharWidth()
+        hdr.resizeSection(NAME, max(280, em * 50))
+        hdr.resizeSection(DATE, max(110, em * 17))
+        hdr.resizeSection(TYPE, max(90, em * 14))
+        hdr.resizeSection(SIZE, max(60, em * 9))
         hdr.setStretchLastSection(False)
         hdr.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hdr.sortIndicatorChanged.connect(self._sort_changed)
@@ -408,7 +420,7 @@ class ExplorerWindow(QMainWindow):
             "caracal:network": self.nav.label("network")})
         if self.current_location():
             self._show(self.current_location())
-        self.nav.rebuild()
+        self._rebuild_nav()
 
     def _update_tabrow(self):
         default = self.layout_style != "win10"
@@ -561,6 +573,13 @@ class ExplorerWindow(QMainWindow):
         self._update_status()
         self._selection_changed()
 
+    def _rebuild_nav(self):
+        """Rebuild the navigation tree and re-highlight the folder we're in."""
+        self.nav.rebuild()
+        loc = self.current_location() if hasattr(self, "tabs_state") else None
+        if loc and not (explorer_setting(self.settings, "nav_follow", True) and self.nav.reveal(loc)):
+            self.nav.select_location(loc)
+
     def apply_appearance(self):
         t = theme.get()
         self.setPalette(t.palette())
@@ -571,7 +590,7 @@ class ExplorerWindow(QMainWindow):
             if slot:
                 b.setIcon(t.icon(slot))
         self.model.clear_thumbs()
-        self.nav.rebuild()
+        self._rebuild_nav()
         self.address.set_location(self.current_location() or "caracal:home")
 
     # ======================================================================
@@ -756,7 +775,7 @@ class ExplorerWindow(QMainWindow):
         if error or not mp:
             QMessageBox.warning(self, "Explorer", "Couldn't open the drive: %s" % (error or "unknown"))
             return
-        self.nav.rebuild()
+        self._rebuild_nav()
         self.go(mp)
 
     # ======================================================================
@@ -1109,7 +1128,7 @@ class ExplorerWindow(QMainWindow):
         if sig != self._net_sig or pinned != self.nav.pinned:
             self._net_sig = sig
             self.nav.pinned = pinned
-            self.nav.rebuild()
+            self._rebuild_nav()
             loc = self.current_location()
             if loc in ("caracal:thispc", "caracal:network") and not self.searching:
                 self._show_page(loc)
@@ -1256,7 +1275,7 @@ class ExplorerWindow(QMainWindow):
         run_async(self, lambda: user_mounts.save(spec, pw), saved)
 
     def eject(self, path):
-        run_async(self, lambda: places.eject(path), lambda _r, _e: (self.nav.rebuild(),
+        run_async(self, lambda: places.eject(path), lambda _r, _e: (self._rebuild_nav(),
                                                                    self.go("caracal:thispc")))
 
     # ======================================================================

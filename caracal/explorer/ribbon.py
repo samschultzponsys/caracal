@@ -27,7 +27,7 @@ class GroupDelegate(QStyledItemDelegate):
             r = option.rect
             if option.state & QStyle.State_MouseOver:
                 painter.fillRect(r, theme.color("hover"))
-            accent = theme.color("text")
+            accent = theme.color("group") if "group" in theme.get().colors() else theme.color("text")
             expanded = option.state & QStyle.State_Open
             painter.setPen(QPen(accent, 1.5))
             cx, cy = r.left() + 10, r.center().y()
@@ -51,6 +51,15 @@ class GroupDelegate(QStyledItemDelegate):
             y = cy + 1
             painter.drawLine(r.left() + 28 + w, y, r.right() - 8, y)
             painter.restore()
+            return
+        if index.column() == 0 and index.parent().isValid():
+            # items under a group header are indented a little, like Explorer
+            from PySide6.QtWidgets import QStyleOptionViewItem
+            opt = QStyleOptionViewItem(option)
+            opt.rect = option.rect.adjusted(10, 0, 0, 0)
+            painter.fillRect(option.rect.adjusted(0, 0, -option.rect.width() + 10, 0),
+                             option.palette.base())
+            super().paint(painter, opt, index)
             return
         super().paint(painter, option, index)
 

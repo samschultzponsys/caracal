@@ -48,8 +48,10 @@ class AddressBar(QFrame):
         self.location = ""
         self.stack = QStackedWidget(self)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(2, 0, 2, 0)
-        lay.addWidget(self.stack)
+        lay.setContentsMargins(2, 0, 0, 0)
+        lay.setSpacing(0)
+        lay.addWidget(self.stack, 1)
+        self._lay = lay
         self.crumbs = QWidget()
         self.crumb_lay = QHBoxLayout(self.crumbs)
         self.crumb_lay.setContentsMargins(0, 0, 0, 0)
@@ -71,6 +73,10 @@ class AddressBar(QFrame):
         self.stack.addWidget(self.crumbs)
         self.stack.addWidget(self.edit)
         self.setCursor(Qt.IBeamCursor)
+
+    def add_trailing(self, widget):
+        """Buttons inside the box at the right end (history dropdown, refresh)."""
+        self._lay.addWidget(widget)
 
     def set_location(self, loc):
         self.location = loc
@@ -106,16 +112,32 @@ class AddressBar(QFrame):
     def _icon_for(self, loc):
         if loc in PSEUDO:
             return theme.get().icon(PSEUDO[loc][1])
+        home = os.path.expanduser("~")
+        if loc == home:
+            return theme.get().icon("home")
+        if loc.startswith(home + "/"):
+            first = os.path.join(home, loc[len(home) + 1:].split("/", 1)[0])
+            from caracal.explorer import places
+            slots = {"user-desktop": "desktop", "folder-download": "downloads",
+                     "folder-documents": "documents", "folder-pictures": "pictures",
+                     "folder-music": "music", "folder-videos": "videos"}
+            for _n, p, icon in places.user_dirs():
+                if p == first:
+                    return theme.get().icon(slots.get(icon, "folder"))
         return theme.get().icon("folder")
 
     def _segments(self, loc):
         if loc in PSEUDO:
-            return [(PSEUDO[loc][0], loc)]
+            return [(location_label(loc), loc)]
         home = os.path.expanduser("~")
-        if loc == home or loc.startswith(home + "/"):
-            segs = [("Home", home)]
-            rel = loc[len(home):].strip("/")
-            base = home
+        if loc == home:
+            return [(location_label(home), home)]
+        if loc.startswith(home + "/"):
+            # Like Explorer: a folder in your home starts the trail ("Downloads › …").
+            first = loc[len(home) + 1:].split("/", 1)[0]
+            base = os.path.join(home, first)
+            segs = [(first, base)]
+            rel = loc[len(base):].strip("/")
         else:
             segs = [("This PC", "caracal:thispc"), ("Local Disk (/)", "/")]
             rel = loc.strip("/")
@@ -321,10 +343,17 @@ class PreviewPane(QFrame):
         self.text.hide()
         self.image.show()
         if not paths:
-            self.image.setPixmap(theme.get().icon("file").pixmap(64, 64))
+            # Explorer shows only a centered hint when nothing is selected.
+            self.image.clear()
             self.title.setText("")
-            self.details.setText("Select a file to preview its contents.")
+            self.details.setText("")
+            self.image.setText("Select a file to preview.")
+            self.title.hide()
+            self.details.hide()
             return
+        self.image.setText("")
+        self.title.show()
+        self.details.show()
         if len(paths) > 1:
             self.image.setPixmap(theme.get().icon("file").pixmap(96, 96))
             self.title.setText("%d items selected" % len(paths))

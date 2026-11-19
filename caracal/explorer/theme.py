@@ -72,15 +72,15 @@ ICON_SLOTS = {
 DEFAULT_THEME = {
     "mode": "system",            # system | light | dark
     "font_family": "",           # "" = system font; e.g. a family from fonts/
-    "font_size": 0,              # 0 = system size (points)
+    "font_size": 9,              # points; 0 = system size. Explorer uses 9 pt Segoe UI
     "accent": "#0067C0",
-    "row_height": 22,
-    "nav_width": 210,
+    "row_height": 20,
+    "nav_width": 180,
     "corner_radius": 4,
-    "light": {"chrome": "#F3F3F3", "content": "#FFFFFF", "text": "#1B1B1B",
+    "light": {"group": "#1E3287", "chrome": "#F3F3F3", "content": "#FFFFFF", "text": "#1B1B1B",
               "subtle": "#616161", "hover": "#E5F3FF", "selected": "#CCE8FF",
               "selected_border": "#99D1FF", "border": "#E5E5E5", "field": "#FFFFFF"},
-    "dark": {"chrome": "#2B2B2B", "content": "#191919", "text": "#F2F2F2",
+    "dark": {"group": "#E6E6E6", "chrome": "#2B2B2B", "content": "#191919", "text": "#F2F2F2",
              "subtle": "#A8A8A8", "hover": "#2D2D2D", "selected": "#434343",
              "selected_border": "#666666", "border": "#3A3A3A", "field": "#191919"},
 }
@@ -264,8 +264,33 @@ class Theme:
             f.setPointSizeF(float(self.data["font_size"]))
         return f
 
+    def glyphs(self):
+        """Small arrow images in the current colors (QSS can only use image files)."""
+        c = self.colors()
+        base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+        d = os.path.join(base, "caracal", "ui", "dark" if self.is_dark() else "light")
+        os.makedirs(d, exist_ok=True)
+        stroke = c["subtle"]
+        shapes = {"chev-right": "M6 4 L10 8 L6 12", "chev-down": "M4 6 L8 10 L12 6",
+                  "sort-up": "M4 9 L8 5 L12 9", "sort-down": "M4 6 L8 10 L12 6"}
+        out = {}
+        for name, path in shapes.items():
+            p = os.path.join(d, name + ".svg")
+            svg = ('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">'
+                   '<path d="%s" fill="none" stroke="%s" stroke-width="1.2" '
+                   'stroke-linecap="round" stroke-linejoin="round"/></svg>' % (path, stroke))
+            try:
+                if not os.path.exists(p) or open(p).read() != svg:
+                    with open(p, "w") as fh:
+                        fh.write(svg)
+            except OSError:
+                pass
+            out[name] = p
+        return out
+
     def stylesheet(self):
         c = self.colors()
+        g = self.glyphs()
         r = int(self.data.get("corner_radius", 4))
         rh = int(self.data.get("row_height", 30))
         accent = self.data.get("accent", "#0067C0")
@@ -279,18 +304,26 @@ class Theme:
         #CommandBar QToolButton:pressed {{ background: {c['selected']}; }}
         #CommandBar QToolButton:disabled {{ color: {c['subtle']}; }}
         #AddressBar, #SearchBox {{ background: {c['field']}; border: 1px solid {c['border']};
-            border-radius: {r}px; min-height: 28px; color: {c['text']}; }}
+            border-radius: 0px; min-height: 22px; max-height: 24px; color: {c['text']}; }}
+        #AddressBar QToolButton {{ padding: 0px 3px; }}
         #AddressBar QToolButton {{ border: none; padding: 2px 4px; border-radius: {r}px; }}
         #AddressBar QToolButton:hover {{ background: {c['hover']}; }}
         #SearchBox:focus, #AddressBar QLineEdit:focus {{ border-bottom: 2px solid {accent}; }}
         #NavPane {{ background: {c['content']}; border: none; border-right: 1px solid {c['border']};
             color: {c['text']}; outline: 0; }}
+        #NavPane::branch {{ background: transparent; }}
+        #NavPane::branch:has-children:closed {{ image: url({g['chev-right']}); }}
+        #NavPane::branch:has-children:open {{ image: url({g['chev-down']}); }}
+        #FileView QHeaderView::up-arrow {{ image: url({g['sort-up']}); subcontrol-position: top center;
+            width: 10px; height: 6px; }}
+        #FileView QHeaderView::down-arrow {{ image: url({g['sort-down']}); subcontrol-position: top center;
+            width: 10px; height: 6px; }}
         #RibbonTabs {{ background: {c['chrome']}; }}
-        #RibbonTabs QToolButton {{ border: none; padding: 4px 14px; color: {c['text']}; }}
+        #RibbonTabs QToolButton {{ border: none; padding: 2px 10px; color: {c['text']}; }}
         #RibbonTabs QToolButton:hover {{ background: {c['hover']}; }}
         #RibbonTabs QToolButton:checked {{ background: {c['content']}; border: 1px solid {c['border']};
             border-bottom: none; }}
-        QToolButton#RibbonFile {{ background-color: {accent}; color: #FFFFFF; padding: 4px 14px;
+        QToolButton#RibbonFile {{ background-color: {accent}; color: #FFFFFF; padding: 2px 12px;
             border: none; }}
         QToolButton#RibbonFile:hover {{ background-color: {accent}; color: #FFFFFF; }}
         #RibbonPanel {{ background: {c['content']}; border-top: 1px solid {c['border']};
@@ -310,9 +343,12 @@ class Theme:
             color: {c['text']}; }}
         #FileView QHeaderView {{ background: {c['content']}; }}
         #FileView QHeaderView::section {{ background: {c['content']}; color: {c['subtle']};
-            border: none; border-right: 1px solid {c['border']}; padding: 4px 8px; }}
+            border: none; border-right: 1px solid {c['border']}; padding: 6px 6px 2px 6px;
+            min-height: 22px; }}
         #PreviewPane {{ background: {c['content']}; border-left: 1px solid {c['border']}; color: {c['text']}; }}
-        #StatusBar {{ background: {c['chrome']}; color: {c['subtle']}; }}
+        #StatusBar {{ background: {c['content']}; color: {c['subtle']}; min-height: 20px;
+            max-height: 22px; }}
+        #StatusBar::item {{ border: none; }}
         #StatusBar QLabel {{ color: {c['subtle']}; }}
         #PreviewPane QLabel, #ThisPC QLabel, #ExplorerRoot QLabel {{ color: {c['text']}; }}
         #PreviewPane QPlainTextEdit {{ background: {c['content']}; color: {c['text']}; border: none; }}
@@ -324,11 +360,12 @@ class Theme:
         QTabBar#Tabs::tab:selected {{ background: {c['content']}; }}
         QTabBar#Tabs::tab:hover:!selected {{ background: {c['hover']}; }}
         QSplitter::handle {{ background: {c['border']}; }}
-        QScrollBar:vertical {{ background: {c['content']}; width: 12px; margin: 0; }}
-        QScrollBar:horizontal {{ background: {c['content']}; height: 12px; margin: 0; }}
-        QScrollBar::handle {{ background: {c['subtle']}; border-radius: 3px; min-height: 24px;
-            min-width: 24px; margin: 3px; }}
-        QScrollBar::handle:hover {{ background: {c['text']}; }}
+        QScrollBar:vertical {{ background: {c['chrome']}; width: 17px; margin: 0; }}
+        QScrollBar:horizontal {{ background: {c['chrome']}; height: 17px; margin: 0; }}
+        QScrollBar::handle {{ background: {c['border'] if self.is_dark() else '#CDCDCD'};
+            min-height: 24px; min-width: 24px; margin: 2px 4px; }}
+        QScrollBar::handle:horizontal {{ margin: 4px 2px; }}
+        QScrollBar::handle:hover {{ background: {c['subtle']}; }}
         QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
         QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
         QDialog {{ background: {c['chrome']}; color: {c['text']}; }}
