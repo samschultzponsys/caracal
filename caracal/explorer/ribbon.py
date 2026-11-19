@@ -356,6 +356,8 @@ class Ribbon(QWidget):
         theme_menu.aboutToShow.connect(lambda: (theme_menu.clear(), w.fill_theme_menu(theme_menu)))
         sort_menu.aboutToShow.connect(lambda: (sort_menu.clear(), w.fill_sort_menu(sort_menu, False)))
         group_menu.aboutToShow.connect(lambda: (group_menu.clear(), w.fill_group_menu(group_menu)))
+        cols_menu = QMenu(self)
+        cols_menu.aboutToShow.connect(lambda: (cols_menu.clear(), w.fill_columns_menu(cols_menu)))
         return self._page([
             self._group("Panes", [self._big("view", "Navigation\npane", w.toggle_nav),
                                   self._big("preview-pane", "Preview\npane", w.toggle_preview)]),
@@ -367,7 +369,11 @@ class Ribbon(QWidget):
                 self._small("details-view", "List", lambda: w.set_view("list")),
                 self._small("details-view", "Details", lambda: w.set_view("details"))]),
             self._group("Current view", [self._big("sort", "Sort\nby ▾", menu=sort_menu)],
-                        [self._small("view", "Group by ▾", menu=group_menu)]),
+                        [self._small("view", "Group by ▾", menu=group_menu),
+                         self._small("details-view", "Add columns ▾", menu=cols_menu),
+                         self._small("details-view", "Size all columns to fit",
+                                     w.size_columns_to_fit),
+                         self._small("view", "Clear filters", w.clear_filters)]),
             self._group("Show/hide", [], [self.ext_cb, self.hidden_cb,
                                           self._small("view", "Theme ▾", menu=theme_menu)]),
             self._group("", [self._big("settings", "Options", w.ctl.preferences)]),

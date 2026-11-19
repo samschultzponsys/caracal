@@ -1,3 +1,10 @@
+caracal (1.2) unstable; urgency=medium
+
+  * Every Explorer Details column; sort, group and filter by any column.
+    See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Sat, 21 Nov 2026 13:00:00 +0000
+
 caracal (1.1) unstable; urgency=medium
 
   * Import KDE/Windows themes; no tray icon in explorer mode; type-ahead fix.

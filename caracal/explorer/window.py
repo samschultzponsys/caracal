@@ -25,7 +25,9 @@ from caracal.background import run_async
 from caracal.explorer import fileops, openwith, places, theme
 from caracal.explorer.dialogs import (LocationDialog, OpenWithDialog, OperationDialog,
                                         PropertiesDialog)
-from caracal.explorer.model import DATE, GROUPS, NAME, SIZE, TYPE, DirModel
+from caracal.explorer.columns import CATEGORIES, COLUMNS, COMMON, DATE, NAME, index_of
+from caracal.explorer.headers import ChooseColumnsDialog, FilterHeader, FilterPopup
+from caracal.explorer.model import DirModel
 from caracal.explorer.ribbon import GroupDelegate, Ribbon
 from caracal.explorer.navpane import TRASH, NavPane
 from caracal.explorer.widgets import (PSEUDO, AddressBar, PreviewPane, Tile, TilePage, ago,
@@ -235,6 +237,7 @@ class ExplorerWindow(QMainWindow):
 
         self.details = _TypeAheadTree(self)
         self.details.setObjectName("FileView")
+        self.details.setHeader(FilterHeader(self.details))
         self.details.setModel(self.model)
         self.details.setRootIsDecorated(False)
         self.details.setIndentation(0)
@@ -248,18 +251,25 @@ class ExplorerWindow(QMainWindow):
         hdr = self.details.header()
         hdr.setSectionResizeMode(QHeaderView.Interactive)
         em = self.fontMetrics().averageCharWidth()
+        for i, c in enumerate(COLUMNS):
+            hdr.resizeSection(i, max(40 if c.width < 8 else 60, em * c.width))
         hdr.resizeSection(NAME, max(280, em * 50))
-        hdr.resizeSection(DATE, max(110, em * 17))
-        hdr.resizeSection(TYPE, max(90, em * 14))
-        hdr.resizeSection(SIZE, max(60, em * 9))
         hdr.setStretchLastSection(False)
         hdr.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hdr.sortIndicatorChanged.connect(self._sort_changed)
         hdr.setContextMenuPolicy(Qt.CustomContextMenu)
         hdr.customContextMenuRequested.connect(self._header_menu)
-        state = self.settings.value("explorer/columns")
-        if state is not None:
-            hdr.restoreState(state)
+        state = self.settings.value("explorer/columns2")
+        if state is None or not hdr.restoreState(state):
+            for i in range(4, len(COLUMNS)):     # defaults: Name, Date modified, Type, Size
+                hdr.setSectionHidden(i, True)
+            old = self.settings.value("explorer/columns")     # before 1.2: 4 columns only
+            if old is not None:
+                self._restore_old_widths(old)
+        hdr.filterRequested.connect(self._filter_popup)
+        hdr.sectionResized.connect(lambda *_a: self._columns_changed())
+        self.model.modelReset.connect(self._sync_filter_marks)
+        self._columns_changed()
 
         self.icons = _TypeAheadList(self)
         self.icons.setObjectName("FileView")
@@ -862,17 +872,103 @@ class ExplorerWindow(QMainWindow):
             json.dump(data, fh, indent=2)
         self.ctl.apply_explorer_settings()
 
+    # -- columns, sorting, grouping, filters ----------------------------------------
+
+    def _restore_old_widths(self, state):
+        """Carry the Name/Date/Type/Size widths over from the pre-1.2 header."""
+        from PySide6.QtWidgets import QHeaderView as _HV
+        tmp_model = QStandardItemModel(0, 4)
+        tmp = _HV(Qt.Horizontal)
+        tmp.setModel(tmp_model)
+        if tmp.restoreState(state):
+            hdr = self.details.header()
+            for i in range(4):
+                if tmp.sectionSize(i) > 10:
+                    hdr.resizeSection(i, tmp.sectionSize(i))
+                hdr.setSectionHidden(i, tmp.isSectionHidden(i) and i != NAME)
+
+    def visible_columns(self):
+        hdr = self.details.header()
+        return [hdr.logicalIndex(v) for v in range(hdr.count())
+                if not hdr.isSectionHidden(hdr.logicalIndex(v))]
+
+    def _columns_changed(self):
+        self.model.set_visible_columns(self.visible_columns())
+
+    def toggle_column(self, col, show=None):
+        hdr = self.details.header()
+        if col == NAME:
+            return
+        show = hdr.isSectionHidden(col) if show is None else show
+        if show and hdr.isSectionHidden(col):
+            hdr.moveSection(hdr.visualIndex(col), hdr.count() - 1)   # new columns go on the right
+        hdr.setSectionHidden(col, not show)
+        if show and hdr.sectionSize(col) < 30:
+            hdr.resizeSection(col, self.fontMetrics().averageCharWidth() * COLUMNS[col].width)
+        self._columns_changed()
+
+    def choose_columns(self):
+        d = ChooseColumnsDialog(set(self.visible_columns()), self)
+        if d.exec():
+            chosen = d.chosen()
+            for i in range(len(COLUMNS)):
+                self.toggle_column(i, i in chosen)
+
+    def size_columns_to_fit(self):
+        for c in self.visible_columns():
+            self.details.resizeColumnToContents(c)
+
+    def fill_columns_menu(self, m, around=None):
+        hdr = self.details.header()
+        shown = set(self.visible_columns())
+        for key in COMMON:
+            col = index_of(key)
+            a = m.addAction(COLUMNS[col].title, lambda c=col: self.toggle_column(c))
+            a.setCheckable(True)
+            a.setChecked(col in shown)
+            a.setEnabled(col != NAME)
+        extra = [c for c in shown if COLUMNS[c].key not in COMMON]
+        for col in extra:      # other columns already showing, so they can be unticked here
+            a = m.addAction(COLUMNS[col].title, lambda c=col: self.toggle_column(c))
+            a.setCheckable(True)
+            a.setChecked(True)
+        m.addSeparator()
+        if around is not None and around >= 0:
+            m.addAction("Size column to fit", lambda: self.details.resizeColumnToContents(around))
+        m.addAction("Size all columns to fit", self.size_columns_to_fit)
+        if self.model.filters:
+            m.addAction("Clear all filters", self.clear_filters)
+        m.addSeparator()
+        m.addAction("More…", self.choose_columns)
+        del hdr
+
     def _header_menu(self, pos):
         hdr = self.details.header()
         m = QMenu(self)
-        for col, label in ((DATE, "Date modified"), (TYPE, "Type"), (SIZE, "Size")):
-            a = m.addAction(label, lambda c=col: hdr.setSectionHidden(c, not hdr.isSectionHidden(c)))
-            a.setCheckable(True)
-            a.setChecked(not hdr.isSectionHidden(col))
-        m.addSeparator()
-        m.addAction("Size all columns to fit", lambda: [
-            self.details.resizeColumnToContents(c) for c in range(4) if not hdr.isSectionHidden(c)])
+        self.fill_columns_menu(m, hdr.logicalIndexAt(pos))
         m.exec(hdr.mapToGlobal(pos))
+
+    def _filter_popup(self, col, pos):
+        values = self.model.filter_values(col)
+        selected = self.model.filters.get(col, set())
+        pop = FilterPopup(COLUMNS[col].title, values, selected,
+                          lambda labels, c=col: self._set_filter(c, labels), self)
+        pop.move(pos)
+        pop.show()
+        self._filter_pop = pop
+
+    def _set_filter(self, col, labels):
+        self.model.set_filter(col, labels)
+        self._update_status()
+
+    def clear_filters(self):
+        self.model.clear_filters()
+        self._update_status()
+
+    def _sync_filter_marks(self):
+        hdr = self.details.header()
+        hdr.filtered = set(self.model.filters)
+        hdr.viewport().update()
 
     # -- trash and archives --------------------------------------------------------
 
@@ -970,13 +1066,34 @@ class ExplorerWindow(QMainWindow):
         m.clear()
         self.fill_sort_menu(m)
 
+    def _column_choices(self, m, current, pick, with_none=False):
+        """Visible columns first, then every other column under More (by category)."""
+        if with_none:
+            a = m.addAction("(None)", lambda: pick(-1))
+            a.setCheckable(True)
+            a.setChecked(current == -1)
+        shown = self.visible_columns()
+        for c in shown:
+            a = m.addAction(COLUMNS[c].title, lambda c=c: pick(c))
+            a.setCheckable(True)
+            a.setChecked(current == c)
+        more = m.addMenu("More")
+        for cat in CATEGORIES:
+            rest = [i for i, col in enumerate(COLUMNS) if col.category == cat and i not in shown]
+            if not rest:
+                continue
+            sub = more.addMenu(cat) if cat != "General" else more
+            for c in rest:
+                a = sub.addAction(COLUMNS[c].title, lambda c=c: pick(c))
+                a.setCheckable(True)
+                a.setChecked(current == c)
+        more.addSeparator()
+        more.addAction("Choose columns…", self.choose_columns)
+
     def fill_sort_menu(self, m, with_group=True):
         col = self.details.header().sortIndicatorSection()
         order = self.details.header().sortIndicatorOrder()
-        for c, label in ((NAME, "Name"), (DATE, "Date modified"), (TYPE, "Type"), (SIZE, "Size")):
-            a = m.addAction(label, lambda c=c: self.details.sortByColumn(c, order))
-            a.setCheckable(True)
-            a.setChecked(col == c)
+        self._column_choices(m, col, lambda c: self.details.sortByColumn(c, order))
         m.addSeparator()
         for o, label in ((Qt.AscendingOrder, "Ascending"), (Qt.DescendingOrder, "Descending")):
             a = m.addAction(label, lambda o=o: self.details.sortByColumn(col, o))
@@ -988,10 +1105,9 @@ class ExplorerWindow(QMainWindow):
             self.fill_group_menu(g)
 
     def fill_group_menu(self, m):
-        for key, label in GROUPS:
-            a = m.addAction(label, lambda k=key: self.set_group(k))
-            a.setCheckable(True)
-            a.setChecked(self._folder_pref("group", "none") == key)
+        current = index_of(self._folder_pref("group", "none"))
+        self._column_choices(m, current, lambda c: self.set_group(
+            "none" if c < 0 else COLUMNS[c].key), with_none=True)
 
     def _fill_more_menu(self):
         m = self.more_menu
@@ -1393,6 +1509,8 @@ class ExplorerWindow(QMainWindow):
         n = self.model.item_count()
         sel = self.selected_paths()
         text = "%s item%s" % (format(n, ","), "" if n == 1 else "s")
+        if self.model.filters:
+            text = "%s of %s items (filtered)" % (format(n, ","), format(self.model.total_count(), ","))
         if sel:
             size = sum(os.path.getsize(p) for p in sel if os.path.isfile(p))
             text += "   |   %d item%s selected%s" % (len(sel), "" if len(sel) == 1 else "s",
@@ -2032,7 +2150,7 @@ class ExplorerWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.settings.setValue("explorer/geometry", self.saveGeometry())
-        self.settings.setValue("explorer/columns", self.details.header().saveState())
+        self.settings.setValue("explorer/columns2", self.details.header().saveState())
         self.settings.setValue("explorer/split", self.split.sizes())
         if self._drives_changed in self.ctl.drive_listeners:
             self.ctl.drive_listeners.remove(self._drives_changed)

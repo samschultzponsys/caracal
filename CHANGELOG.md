@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [1.2] - 2026-11-21
+
+- **All of Explorer's Details columns.** Name, Date modified, Type and Size stay the defaults; right-click the column header (or **View → Add columns**) to add Date created, Date accessed, File extension, Filename, Folder path, Path, Attributes, Owner, Group, Permissions, Link target, picture details (Dimensions, Width, Height, Date taken, Camera maker, Camera model), music/video details (Length, Bit rate, Title, Contributing artists, Album, Genre, Year, #) and document details (Authors, Pages, Content created). **More…** opens the full list. New columns appear on the right; drag headers to reorder.
+- **Sort by and Group by any column**, from the header, **View → Sort by / Group by**, or the right-click menu (columns that aren't showing are under **More**).
+- **Header filters like Explorer:** hover a column header and click the ▾ to tick the values to show (dates as Today / Yesterday / Last week…, sizes as Tiny / Small / Medium…, everything else by value). Filtered columns show a ✓, the status bar shows "N of M items (filtered)", and **View → Clear filters** resets them. Filters clear when you leave the folder.
+- Picture, music and document details are read in the background only while one of their columns is in use. Music/video details need ffprobe (install ffmpeg); PDF details use pdfinfo.
+- **View → Size all columns to fit.**
+
 ## [1.1] - 2026-11-21
 
 - **Import KDE / Windows themes:** Preferences → Appearance → **Import theme…** takes a downloaded theme (.zip, .tar.gz, .tar.xz…), a KDE color scheme (.colors) or a folder, and picks out icon themes, color schemes, fonts and slot-named icons. The new **Icon theme** setting picks any installed or imported icon theme for Caracal only, or "Same as the desktop" (handy if you apply a Windows theme to all of KDE).

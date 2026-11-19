@@ -2,6 +2,30 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v1.2: every Details column, sort/group/filter by any of them
+
+Sam: "need the full suite of filters and sort by like windows has… these [Name, Date
+modified, Type, Size] are the defaults I want but we need all of them".
+- columns.py: COLUMNS tuple of Column(key, title, kind, width, category, meta). Indices 0-3
+  unchanged (stored per-folder sort [col, order] stays valid); group_by is stored as the
+  column key ("date", "type", "ext"…; old values map via index_of). value()/display()/
+  sort_key()/bucket() per column; missing values sort last, "Unspecified" group last.
+- metadata.py: statx birth time (ctypes; struct buffer must be >= 256 bytes — a 240-byte
+  buffer corrupted memory and caused random segfaults), JPEG/TIFF EXIF, QImageReader size,
+  ffprobe JSON, OOXML/ODF props, pdfinfo. read() is called from DirModel._meta_pool only
+  when meta_needed() (a meta column is visible/sorted/grouped/filtered); results cached by
+  (path, mtime); sort/group/filter on a meta column re-runs _rebuild 400 ms after results.
+- DirModel: filters {col: set(labels)} cleared by setRootPath; filter_values(col) counts
+  respect other filters; total_count(). _Relay now holds the model by weakref and checks
+  shiboken6.isValid, so late worker results for a closed window are dropped.
+- headers.py: FilterHeader (▾ on hover, ✓ when filtered; press in the arrow area opens the
+  popup without sorting), FilterPopup (Qt.Popup checkbox list, applies live, search box
+  when > 12 values), ChooseColumnsDialog ("More…").
+- window.py: header state now saved as explorer/columns2 (old 4-column state only donates
+  widths via _restore_old_widths); fill_columns_menu (header right-click and View → Add
+  columns), _column_choices for Sort by / Group by (visible columns + More by category).
+- Packaging: Suggests ffmpeg-free (Fedora) / ffmpeg (Debian) for ffprobe.
+
 ## 2026-11-21 — v1.1: theme import, tray-less explorer mode, type-ahead
 
 - theme.import_theme(): safe extract (zip-slip check, tar filter="data", 400 MB cap) into a

@@ -10,7 +10,7 @@ import math
 import os
 import stat
 import threading
-import time
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -19,16 +19,15 @@ from PySide6.QtCore import (QAbstractItemModel, QDateTime, QFileInfo, QFileSyste
                             QUrl, Signal)
 from PySide6.QtGui import QFont, QIcon, QImage, QImageReader, QPixmap
 from PySide6.QtWidgets import QApplication
+import shiboken6
 
-from caracal.explorer import theme
+from caracal.explorer import columns as cols, metadata, theme
+from caracal.explorer.columns import (COLUMNS, DATE, NAME, SIZE, TYPE, date_bucket,  # noqa: F401
+                                      name_bucket, size_bucket)
 
 THUMB_EXTS = {"jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "svg", "ico", "xpm",
               "heic", "avif"}
-COLUMNS = ("Name", "Date modified", "Type", "Size")
-NAME, DATE, TYPE, SIZE = range(4)
 GROUP_ROLE = Qt.UserRole + 10
-GROUPS = (("none", "(None)"), ("date", "Date modified"), ("type", "Type"), ("name", "Name"),
-          ("size", "Size"))
 
 
 @dataclass
@@ -41,65 +40,13 @@ class Entry:
     hidden: bool
     type_name: str = ""
     group: int = 0          # index into the model's group list
-
-
-# --------------------------------------------------------------------------
-# grouping rules (Windows Explorer's buckets)
-# --------------------------------------------------------------------------
-
-def date_bucket(mtime, now=None):
-    now = time.time() if now is None else now
-    t = time.localtime(now)
-    midnight = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
-    week_start = midnight - t.tm_wday * 86400            # Monday
-    month_start = time.mktime((t.tm_year, t.tm_mon, 1, 0, 0, 0, 0, 0, -1))
-    prev_month = time.mktime((t.tm_year - (t.tm_mon == 1), (t.tm_mon - 2) % 12 + 1, 1,
-                              0, 0, 0, 0, 0, -1))
-    year_start = time.mktime((t.tm_year, 1, 1, 0, 0, 0, 0, 0, -1))
-    if mtime >= midnight + 86400:
-        return 0, "In the future"
-    if mtime >= midnight:
-        return 1, "Today"
-    if mtime >= midnight - 86400:
-        return 2, "Yesterday"
-    if mtime >= week_start:
-        return 3, "Earlier this week"
-    if mtime >= week_start - 7 * 86400:
-        return 4, "Last week"
-    if mtime >= month_start:
-        return 5, "Earlier this month"
-    if mtime >= prev_month:
-        return 6, "Last month"
-    if mtime >= year_start:
-        return 7, "Earlier this year"
-    return 8, "A long time ago"
-
-
-def size_bucket(e):
-    if e.is_dir:
-        return 0, "Unspecified"
-    s = e.size
-    for i, (limit, label) in enumerate(((0, "Empty (0 KB)"), (16 * 1024, "Tiny (0 - 16 KB)"),
-                                        (1024 ** 2, "Small (16 KB - 1 MB)"),
-                                        (128 * 1024 ** 2, "Medium (1 - 128 MB)"),
-                                        (1024 ** 3, "Large (128 MB - 1 GB)"),
-                                        (4 * 1024 ** 3, "Huge (1 - 4 GB)")), 1):
-        if s <= limit:
-            return i, label
-    return 7, "Gigantic (> 4 GB)"
-
-
-def name_bucket(e):
-    c = e.name[:1].upper()
-    if "A" <= c <= "H":
-        return 1, "A - H"
-    if "I" <= c <= "P":
-        return 2, "I - P"
-    if "Q" <= c <= "Z":
-        return 3, "Q - Z"
-    if c.isdigit():
-        return 0, "0 - 9"
-    return 4, "Other"
+    atime: float = 0.0
+    mode: int = 0o644
+    uid: int = 0
+    gid: int = 0
+    is_link: bool = False
+    link: str = None        # symlink target, read on demand
+    meta: dict = None       # extra details (picture/media/document), loaded in the background
 
 
 def win_size(n):
@@ -107,9 +54,27 @@ def win_size(n):
     return "%s KB" % format(int(math.ceil(n / 1024.0)), ",")
 
 
+_RELAYS = []
+
+
 class _Relay(QObject):
+    """Carries worker-thread results to the GUI thread. Holds the model weakly and checks
+    it's still alive, so results that arrive after a window closed are just dropped."""
     loaded = Signal(int, str, list, str)
     thumb = Signal(str, QImage)
+    meta = Signal(int, list)
+
+    def __init__(self, owner):
+        super().__init__()
+        self._owner = weakref.ref(owner)
+        self.loaded.connect(lambda *a: self._call("_loaded", a))
+        self.thumb.connect(lambda *a: self._call("_thumb_ready", a))
+        self.meta.connect(lambda *a: self._call("_meta_ready", a))
+
+    def _call(self, name, args):
+        owner = self._owner()
+        if owner is not None and shiboken6.isValid(owner):
+            getattr(owner, name)(*args)
 
 
 class DirModel(QAbstractItemModel):
@@ -131,16 +96,25 @@ class DirModel(QAbstractItemModel):
         self.on_rename = None
         self.loading = False
         self.error = ""             # why the folder couldn't be read ("" = fine)
+        self.all_entries = []
+        self.filters = {}           # column -> set of bucket labels to show (header filters)
+        self.visible_cols = {NAME, DATE, TYPE, SIZE}
         self._gen = 0
+        self._by_path = {}
+        self._meta_cache = {}       # (path, mtime) -> details dict
+        self._meta_pending = set()
+        self._meta_pool = ThreadPoolExecutor(max_workers=3)
         self._mime = QMimeDatabase()
         self._types = {}
         self._thumbs = {}
         self._pending = set()
         self._lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=2)
-        self._relay = _Relay()
-        self._relay.loaded.connect(self._loaded)
-        self._relay.thumb.connect(self._thumb_ready)
+        self._relay = _Relay(self)
+        _RELAYS.append(self._relay)   # outlives the model: worker threads may still emit
+        self._meta_timer = QTimer(self)        # re-sort/regroup once details trickle in
+        self._meta_timer.setSingleShot(True)
+        self._meta_timer.timeout.connect(self._rebuild)
         self.watcher = QFileSystemWatcher(self)
         self.watcher.directoryChanged.connect(lambda _p: self._reload_timer.start(300))
         self._reload_timer = QTimer(self)
@@ -154,6 +128,7 @@ class DirModel(QAbstractItemModel):
             self.watcher.removePaths(self.watcher.directories())
         self.root = path
         self.error = ""
+        self.filters = {}
         self.beginResetModel()
         self.entries, self.groups = [], []
         self._thumbs.clear()
@@ -188,8 +163,14 @@ class DirModel(QAbstractItemModel):
                         except OSError:
                             continue
                     is_dir = stat.S_ISDIR(st.st_mode)
+                    try:
+                        link = e.is_symlink()
+                    except OSError:
+                        link = False
                     out.append(Entry(e.name, e.path, is_dir, 0 if is_dir else st.st_size,
-                                     st.st_mtime, e.name.startswith(".")))
+                                     st.st_mtime, e.name.startswith("."), atime=st.st_atime,
+                                     mode=st.st_mode, uid=st.st_uid, gid=st.st_gid,
+                                     is_link=link))
         except PermissionError:
             err = "You don't currently have permission to access this folder."
         except FileNotFoundError:
@@ -205,30 +186,38 @@ class DirModel(QAbstractItemModel):
         self.error = err
         for e in entries:
             e.type_name = self.type_name(e)
+            e.meta = self._meta_cache.get((e.path, e.mtime))
         self.all_entries = entries
+        self._by_path = {e.path: e for e in entries}
         self._rebuild()
+        self._request_meta()
         self.directoryLoaded.emit(root)
+
+    def group_col(self):
+        return cols.index_of(self.group_by) if self.group_by != "none" else -1
+
+    def passes_filters(self, e, skip=None):
+        for col, allowed in self.filters.items():
+            if col != skip and cols.bucket(col, e)[1] not in allowed:
+                return False
+        return True
 
     def _rebuild(self):
         self.beginResetModel()
-        self.entries = [e for e in getattr(self, "all_entries", [])
-                        if self.show_hidden or not e.hidden]
+        self.entries = [e for e in self.all_entries
+                        if (self.show_hidden or not e.hidden) and self.passes_filters(e)]
         self._sort_entries(self.entries)
         self.groups = []
-        if self.group_by != "none":
+        gcol = self.group_col()
+        if gcol >= 0:
             buckets = {}
             for e in self.entries:
-                if self.group_by == "date":
-                    key = date_bucket(e.mtime)
-                elif self.group_by == "size":
-                    key = size_bucket(e)
-                elif self.group_by == "name":
-                    key = name_bucket(e)
-                else:
-                    key = (0 if e.is_dir else 1, e.type_name)
-                buckets.setdefault(key, []).append(e)
+                buckets.setdefault(cols.bucket(gcol, e), []).append(e)
             keys = sorted(buckets)
-            if self.group_by in ("date",) and self.sort_col == DATE and \
+            if self.sort_col == gcol and self.sort_order == Qt.DescendingOrder and \
+                    COLUMNS[gcol].kind != "date":
+                keys.reverse()
+            elif COLUMNS[gcol].kind == "date" and self.sort_col == gcol and \
                     self.sort_order == Qt.AscendingOrder:
                 keys.reverse()
             self.groups = [(k[1], buckets[k]) for k in keys]
@@ -239,18 +228,99 @@ class DirModel(QAbstractItemModel):
 
     def _sort_entries(self, items):
         rev = self.sort_order == Qt.DescendingOrder
-        col = self.sort_col
-        if col == DATE:
-            key = lambda e: e.mtime  # noqa: E731
-        elif col == SIZE:
-            key = lambda e: e.size  # noqa: E731
-        elif col == TYPE:
-            key = lambda e: (e.type_name.lower(), e.name.lower())  # noqa: E731
-        else:
-            key = lambda e: _natural(e.name)  # noqa: E731
-        items.sort(key=key, reverse=rev)
-        if col in (NAME, TYPE, SIZE):
+        col = self.sort_col if 0 <= self.sort_col < len(COLUMNS) else NAME
+        present = [e for e in items if cols.value(col, e) not in (None, "")]
+        missing = [e for e in items if cols.value(col, e) in (None, "")]
+        present.sort(key=lambda e: cols.sort_key(col, e), reverse=rev)
+        missing.sort(key=lambda e: _natural(e.name))
+        items[:] = present + missing
+        if cols.folders_first(col):
             items.sort(key=lambda e: not e.is_dir)   # folders first, like Explorer
+
+    def set_filter(self, col, labels):
+        if labels:
+            self.filters[col] = set(labels)
+        else:
+            self.filters.pop(col, None)
+        self._request_meta()
+        self._rebuild()
+
+    def clear_filters(self):
+        self.filters = {}
+        self._rebuild()
+
+    def filter_values(self, col):
+        """[(label, count)] for the header filter of `col`, in Explorer's order. Counts
+        respect the other columns' filters, so the lists narrow each other down."""
+        counts = {}
+        for e in self.all_entries:
+            if (self.show_hidden or not e.hidden) and self.passes_filters(e, skip=col):
+                k = cols.bucket(col, e)
+                counts[k] = counts.get(k, 0) + 1
+        return [(k[1], counts[k]) for k in sorted(counts)]
+
+    # -- extra details (pictures, media, documents) -------------------------------------
+
+    def meta_needed(self):
+        want = set(self.visible_cols) | {self.sort_col, self.group_col()} | set(self.filters)
+        return any(0 <= c < len(COLUMNS) and COLUMNS[c].meta for c in want)
+
+    def set_visible_columns(self, visible):
+        self.visible_cols = set(visible)
+        self._request_meta()
+
+    def _request_meta(self):
+        if not self.meta_needed():
+            return
+        todo = [e for e in self.all_entries if e.meta is None and e.path not in self._meta_pending]
+        if not todo:
+            return
+        gen = self._gen
+        for i in range(0, len(todo), 40):
+            chunk = [(e.path, e.is_dir, e.mtime) for e in todo[i:i + 40]]
+            self._meta_pending.update(p for p, _d, _m in chunk)
+            self._meta_pool.submit(self._load_meta, gen, chunk)
+
+    def _load_meta(self, gen, chunk):
+        out = []
+        for path, is_dir, mtime in chunk:
+            if gen != self._gen:
+                out.append((path, mtime, None))
+                continue
+            out.append((path, mtime, metadata.read(path, is_dir)))
+        self._relay.meta.emit(gen, out)
+
+    def _meta_ready(self, gen, results):
+        for path, mtime, info in results:
+            self._meta_pending.discard(path)
+            if info is None:
+                continue
+            if len(self._meta_cache) > 50000:
+                self._meta_cache.clear()
+            self._meta_cache[(path, mtime)] = info
+            e = self._by_path.get(path)
+            if e is not None and e.mtime == mtime:
+                e.meta = info
+        if gen != self._gen:
+            return
+        meta_order = {c for c in (self.sort_col, self.group_col(), *self.filters)
+                      if 0 <= c < len(COLUMNS) and COLUMNS[c].meta}
+        if meta_order:
+            self._meta_timer.start(400)
+        else:
+            self._emit_all_changed()
+
+    def _emit_all_changed(self):
+        last = len(COLUMNS) - 1
+        if self.grouped():
+            for gi, (_l, items) in enumerate(self.groups):
+                if items:
+                    parent = self.createIndex(gi, 0, 0)
+                    self.dataChanged.emit(self.index(0, 0, parent),
+                                          self.index(len(items) - 1, last, parent))
+        elif self.entries:
+            self.dataChanged.emit(self.createIndex(0, 0, 0),
+                                  self.createIndex(len(self.entries) - 1, last, 0))
 
     def set_group_by(self, mode):
         self.group_by = mode
@@ -285,7 +355,7 @@ class DirModel(QAbstractItemModel):
     def index(self, row, column=0, parent=QModelIndex()):
         if isinstance(row, str):        # index(path) convenience
             return self.index_for_path(row)
-        if column < 0 or column >= 4 or row < 0:
+        if column < 0 or column >= len(COLUMNS) or row < 0:
             return QModelIndex()
         if not parent.isValid():
             n = len(self.groups) if self.grouped() else len(self.entries)
@@ -309,7 +379,7 @@ class DirModel(QAbstractItemModel):
         return 0
 
     def columnCount(self, parent=QModelIndex()):
-        return 4
+        return len(COLUMNS)
 
     def hasChildren(self, parent=QModelIndex()):
         return self.rowCount(parent) > 0
@@ -351,11 +421,17 @@ class DirModel(QAbstractItemModel):
     def item_count(self):
         return len(self.entries)
 
+    def total_count(self):
+        return sum(1 for e in self.all_entries if self.show_hidden or not e.hidden)
+
     # -- data ----------------------------------------------------------------------
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole and section < 4:
-            return COLUMNS[section]
+        if orientation == Qt.Horizontal and 0 <= section < len(COLUMNS):
+            if role == Qt.DisplayRole:
+                return COLUMNS[section].title
+            if role == Qt.TextAlignmentRole and cols.right_aligned(section):
+                return int(Qt.AlignRight | Qt.AlignVCenter)
         return None
 
     def data(self, index, role=Qt.DisplayRole):
@@ -383,12 +459,7 @@ class DirModel(QAbstractItemModel):
                 return e.name
             if role == Qt.EditRole:
                 return None
-            if col == DATE:
-                return self.format_date(e.mtime)
-            if col == TYPE:
-                return e.type_name
-            if col == SIZE:
-                return "" if e.is_dir else self.format_size(e.size)
+            return cols.display(col, e, self)
         if role == Qt.DecorationRole and col == NAME:
             info = QFileInfo(e.path)
             if self.thumb_size and not e.is_dir and \
@@ -399,7 +470,7 @@ class DirModel(QAbstractItemModel):
                 self._request_thumb(e)
             return theme.get().icon("folder") if e.is_dir and theme.get()._file("folder") \
                 else theme.get().file_icon(info)
-        if role == Qt.TextAlignmentRole and col == SIZE:
+        if role == Qt.TextAlignmentRole and cols.right_aligned(col):
             return int(Qt.AlignRight | Qt.AlignVCenter)
         if role == Qt.ForegroundRole and col != NAME:
             return theme.color("subtle")

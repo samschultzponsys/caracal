@@ -122,9 +122,21 @@ in the tray menu and under Network in Explorer.
 - **Navigation pane:** Quick access (pin any folder), This PC (your folders, disks, USB
   drives, and network drives as "name (\\server)"), Network, Trash. Rename any of these
   in Preferences → Explorer.
-- **Details view** with Explorer's grouping (Today, Yesterday, Earlier this week…,
-  or by type, name, size) and Windows-style sizes and dates. Each folder remembers its
-  sort and grouping.
+- **Details view** with Explorer's columns: Name, Date modified, Type and Size by default,
+  plus Date created, Date accessed, File extension, Filename, Folder path, Path,
+  Attributes, Owner, Group, Permissions and Link target; for pictures Dimensions, Width,
+  Height, Date taken, Camera maker and Camera model; for music and video Length, Bit rate,
+  Title, Contributing artists, Album, Genre, Year and #; for documents Authors, Pages and
+  Content created. Right-click the column header (or View → Add columns) to add them;
+  **More…** lists them all.
+- **Sort, group and filter by any column.** Group by gives Explorer's buckets (Today,
+  Yesterday, Earlier this week…; Tiny/Small/Medium… sizes; A - H…). Hover a column header
+  and click its ▾ to filter by value; filtered columns show a ✓ and the status bar says
+  "N of M items (filtered)". Filters clear when you leave the folder; each folder
+  remembers its sort and grouping. Picture/music/document details are read in the
+  background only while one of their columns is shown, sorted, grouped or filtered.
+  Music and video details need `ffprobe` (ffmpeg); PDF details need `pdfinfo`
+  (poppler-utils).
 - **Mouse and keyboard like Windows:** back/forward mouse buttons, middle-click opens a
   folder in a new tab, Ctrl+wheel resizes icons, F2, Del, Ctrl+Z, Alt+Up, Ctrl+L, F3…
 - **Quick Access Toolbar** (top left: New folder, Properties, customizable with ▾).
