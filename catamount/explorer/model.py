@@ -108,7 +108,7 @@ def win_size(n):
 
 
 class _Relay(QObject):
-    loaded = Signal(int, str, list)
+    loaded = Signal(int, str, list, str)
     thumb = Signal(str, QImage)
 
 
@@ -130,6 +130,7 @@ class DirModel(QAbstractItemModel):
         self.on_drop = None
         self.on_rename = None
         self.loading = False
+        self.error = ""             # why the folder couldn't be read ("" = fine)
         self._gen = 0
         self._mime = QMimeDatabase()
         self._types = {}
@@ -152,6 +153,7 @@ class DirModel(QAbstractItemModel):
         if self.watcher.directories():
             self.watcher.removePaths(self.watcher.directories())
         self.root = path
+        self.error = ""
         self.beginResetModel()
         self.entries, self.groups = [], []
         self._thumbs.clear()
@@ -174,6 +176,7 @@ class DirModel(QAbstractItemModel):
 
     def _scan(self, gen, root):
         out = []
+        err = ""
         try:
             with os.scandir(root) as it:
                 for e in it:
@@ -187,14 +190,19 @@ class DirModel(QAbstractItemModel):
                     is_dir = stat.S_ISDIR(st.st_mode)
                     out.append(Entry(e.name, e.path, is_dir, 0 if is_dir else st.st_size,
                                      st.st_mtime, e.name.startswith(".")))
-        except OSError:
-            pass
-        self._relay.loaded.emit(gen, root, out)
+        except PermissionError:
+            err = "You don't currently have permission to access this folder."
+        except FileNotFoundError:
+            err = "This folder doesn't exist anymore. It may have been moved or deleted."
+        except OSError as exc:
+            err = "This folder can't be opened: %s" % (exc.strerror or exc)
+        self._relay.loaded.emit(gen, root, out, err)
 
-    def _loaded(self, gen, root, entries):
+    def _loaded(self, gen, root, entries, err=""):
         if gen != self._gen or root != self.root:
             return
         self.loading = False
+        self.error = err
         for e in entries:
             e.type_name = self.type_name(e)
         self.all_entries = entries
@@ -397,6 +405,12 @@ class DirModel(QAbstractItemModel):
             return int(Qt.AlignRight | Qt.AlignVCenter)
         if role == Qt.ForegroundRole and col != NAME:
             return theme.color("subtle")
+        if role == Qt.ToolTipRole and col == NAME and "/Trash/files/" in e.path or \
+                role == Qt.ToolTipRole and col == NAME and "/.Trash-" in e.path:
+            from catamount.explorer.fileops import trash_original
+            orig, when = trash_original(e.path)
+            if orig:
+                return "%s\nOriginal location: %s\nDate deleted: %s" % (e.name, os.path.dirname(orig), when)
         if role == Qt.ToolTipRole and col == NAME:
             return "%s\nType: %s\nDate modified: %s%s" % (
                 e.name, e.type_name, self.format_date(e.mtime),

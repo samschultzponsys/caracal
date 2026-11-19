@@ -2,6 +2,20 @@
 
 All notable user-facing changes to CataMount.
 
+## [0.6] - 2026-11-19
+
+Explorer polish toward v1:
+
+- When a folder changes on disk (a download finishing, a file saved), the view keeps your selection, scroll position and collapsed groups instead of resetting.
+- Clear messages for empty folders, folders you don't have permission to open, and folders that no longer exist.
+- Mouse back/forward buttons work; middle-click a folder to open it in a new background tab; Ctrl + mouse wheel changes the icon size.
+- The address bar autocompletes folder paths as you type.
+- The navigation pane follows the folder you're in (expands down to it).
+- Right-click the column header to show or hide Date modified, Type and Size.
+- Quick access now also shows Frequent folders.
+- Trash: Restore (and Restore all items); hovering an item shows where it came from and when it was deleted.
+- Right-click → Extract all… for ZIP, TAR (gz/bz2/xz) and, with p7zip installed, 7z/RAR; Compress to ZIP file.
+
 ## [0.5] - 2026-11-19
 
 **CataMount Explorer (preview)**: a Windows Explorer-style file manager. Turn it on in Preferences → Explorer → "Use CataMount as my file explorer".

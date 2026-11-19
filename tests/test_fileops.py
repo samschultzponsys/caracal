@@ -84,6 +84,32 @@ class FileOpsTests(unittest.TestCase):
             self.assertTrue(os.path.exists(src))
             self.assertFalse(os.path.exists(info))
 
+    def test_restore_extract_zip(self):
+        data = os.path.join(self.tmp.name, "data")
+        with unittest.mock.patch.dict(os.environ, {"XDG_DATA_HOME": data}):
+            src = os.path.join(self.a, "doc.txt")
+            trashed = fileops.trash_item(src)
+            orig, when = fileops.trash_original(trashed)
+            self.assertEqual(orig, src)
+            self.assertTrue(when)
+            self.assertEqual(fileops.restore_from_trash(trashed), src)
+            self.assertTrue(os.path.exists(src))
+        z = fileops.make_zip([os.path.join(self.a, "doc.txt"), os.path.join(self.a, "folder")],
+                             os.path.join(self.b, "a.zip"))
+        self.assertTrue(fileops.is_archive(z))
+        out = fileops.extract_archive(z)
+        self.assertEqual(out, os.path.join(self.b, "a"))
+        self.assertEqual(open(os.path.join(out, "folder", "inner.txt")).read(), "inner" * 1000)
+        self.assertEqual(fileops.extract_archive(z), os.path.join(self.b, "a (2)"))
+        import zipfile
+        bad = os.path.join(self.b, "bad.zip")
+        with zipfile.ZipFile(bad, "w") as zf:
+            zf.writestr("../escape.txt", "x")
+        with self.assertRaises(OSError):
+            fileops.extract_archive(bad)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "escape.txt")))
+        self.assertFalse(os.path.exists(os.path.join(self.b, "bad")))
+
     def test_unique_names(self):
         write(os.path.join(self.b, "x.txt"))
         self.assertEqual(fileops.unique_name(self.b, "x.txt"), "x - Copy.txt")

@@ -121,6 +121,10 @@ in the tray menu and under Network in Explorer.
 - **Details view** with Explorer's grouping (Today, Yesterday, Earlier this week…,
   or by type, name, size) and Windows-style sizes and dates. Each folder remembers its
   sort and grouping.
+- **Mouse and keyboard like Windows:** back/forward mouse buttons, middle-click opens a
+  folder in a new tab, Ctrl+wheel resizes icons, F2, Del, Ctrl+Z, Alt+Up, Ctrl+L, F3…
+- **Trash with Restore**, Extract all… / Compress to ZIP, Frequent folders, column chooser
+  (right-click the header).
 - **Everything else you'd expect:** breadcrumb address bar (type a path, `\\server\share`
   or `sftp://…` to connect), search box (instant on indexed drives), preview pane,
   thumbnails, Open with, Properties, templates, copy/cut/paste and drag-and-drop with

@@ -60,6 +60,109 @@ def trash_dir_for(path):
     return os.path.join(top, ".Trash-%d" % os.getuid())
 
 
+def trash_info_path(trashed):
+    """The .trashinfo file for a path inside a Trash/files folder."""
+    files_dir = os.path.dirname(trashed)
+    return os.path.join(os.path.dirname(files_dir), "info", os.path.basename(trashed) + ".trashinfo")
+
+
+def trash_original(trashed):
+    """(original path, deletion date string) from the .trashinfo, or (None, "")."""
+    from urllib.parse import unquote
+    try:
+        with open(trash_info_path(trashed), encoding="utf-8") as fh:
+            info = dict(l.strip().split("=", 1) for l in fh if "=" in l)
+    except OSError:
+        return None, ""
+    path = unquote(info.get("Path", ""))
+    if path and not path.startswith("/"):        # relative to the disk's top folder
+        path = os.path.join(_mount_root(trashed), path)
+    return path or None, info.get("DeletionDate", "").replace("T", " ")
+
+
+def restore_from_trash(trashed):
+    """Put a trashed item back where it was. Returns the restored path or raises OSError."""
+    original, _date = trash_original(trashed)
+    if not original:
+        raise OSError(errno.ENOENT, "No record of where %s came from" % os.path.basename(trashed))
+    os.makedirs(os.path.dirname(original), exist_ok=True)
+    target = original
+    if os.path.lexists(target):
+        target = os.path.join(os.path.dirname(original),
+                              unique_name(os.path.dirname(original), os.path.basename(original), "n"))
+    shutil.move(trashed, target)
+    try:
+        os.unlink(trash_info_path(trashed))
+    except OSError:
+        pass
+    return target
+
+
+ARCHIVE_EXTS = (".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz",
+                ".tar.zst", ".7z", ".rar")
+
+
+def is_archive(path):
+    return os.path.isfile(path) and path.lower().endswith(ARCHIVE_EXTS)
+
+
+def extract_archive(path, dest_parent=None):
+    """Extract into a new folder named after the archive. Returns that folder."""
+    import subprocess
+    low = path.lower()
+    base = os.path.basename(path)
+    for ext in sorted(ARCHIVE_EXTS, key=len, reverse=True):
+        if low.endswith(ext):
+            base = base[:-len(ext)]
+            break
+    parent = dest_parent or os.path.dirname(path)
+    name = base if not os.path.exists(os.path.join(parent, base)) else unique_name(parent, base, "n")
+    dest = os.path.join(parent, name)
+    os.makedirs(dest)
+    try:
+        if low.endswith((".7z", ".rar", ".tar.zst")):
+            tool = shutil.which("7z") or shutil.which("7za") or shutil.which("bsdtar")
+            if not tool:
+                raise OSError(errno.ENOENT, "Install p7zip or bsdtar to extract this kind of archive")
+            args = [tool, "x", "-o" + dest, path] if "7z" in os.path.basename(tool) \
+                else [tool, "-xf", path, "-C", dest]
+            proc = subprocess.run(args, capture_output=True, text=True)
+            if proc.returncode != 0:
+                raise OSError(errno.EIO, (proc.stderr or proc.stdout).strip()[-300:])
+        elif low.endswith(".zip"):
+            import zipfile
+            with zipfile.ZipFile(path) as zf:
+                for member in zf.infolist():
+                    target = os.path.realpath(os.path.join(dest, member.filename))
+                    if not target.startswith(os.path.realpath(dest) + os.sep) and \
+                            target != os.path.realpath(dest):
+                        raise OSError(errno.EPERM, "Unsafe path in archive: %s" % member.filename)
+                zf.extractall(dest)
+        else:
+            import tarfile
+            with tarfile.open(path) as tf:
+                tf.extractall(dest, filter="data")
+    except BaseException:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    return dest
+
+
+def make_zip(paths, target):
+    import zipfile
+    root = os.path.dirname(paths[0])
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in paths:
+            if os.path.isdir(p):
+                for d, _dirs, files in os.walk(p):
+                    for f in files:
+                        full = os.path.join(d, f)
+                        zf.write(full, os.path.relpath(full, root))
+            else:
+                zf.write(p, os.path.basename(p))
+    return target
+
+
 def trash_item(path):
     """Move one item to the trash. Returns the path inside Trash/files, or raises OSError."""
     from urllib.parse import quote

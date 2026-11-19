@@ -258,7 +258,7 @@ class Ribbon(QWidget):
     def _share(self):
         w = self.win
         return self._page([
-            self._group("Send", [self._big("new", "Zip", self._zip),
+            self._group("Send", [self._big("new", "Zip", lambda: w.compress(w.selected_paths())),
                                  self._big("copy", "Copy\npath", w.copy_path)]),
             self._group("Network", [self._big("add-location", "Add network\nlocation",
                                               lambda: w.add_network_location()),

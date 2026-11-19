@@ -217,7 +217,10 @@ class ExplorerWindow(QMainWindow):
         self.model.on_rename = lambda old, new: self.undo_stack.append(
             {"kind": "rename", "old": old, "new": new})
         self.model.directoryLoaded.connect(self._dir_loaded)
+        self.model.modelAboutToBeReset.connect(self._save_view_state)
         self.model.modelReset.connect(self._model_reset)
+        self._saved_view = None
+        self._collapsed = {}          # folder -> set(group labels the user collapsed)
 
         self.details = QTreeView()
         self.details.setObjectName("FileView")
@@ -240,6 +243,8 @@ class ExplorerWindow(QMainWindow):
         hdr.setStretchLastSection(False)
         hdr.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hdr.sortIndicatorChanged.connect(self._sort_changed)
+        hdr.setContextMenuPolicy(Qt.CustomContextMenu)
+        hdr.customContextMenuRequested.connect(self._header_menu)
         state = self.settings.value("explorer/columns")
         if state is not None:
             hdr.restoreState(state)
@@ -271,6 +276,18 @@ class ExplorerWindow(QMainWindow):
                 self.settings, "single_click", False) else None)
             view.installEventFilter(self)
         self.details.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.details.expanded.connect(lambda i: self._group_toggled(i, True))
+        self.details.collapsed.connect(lambda i: self._group_toggled(i, False))
+        self.empty_labels = []
+        for view in (self.details, self.icons):
+            lab = QLabel(view.viewport())
+            lab.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+            lab.setWordWrap(True)
+            lab.setAttribute(Qt.WA_TransparentForMouseEvents)
+            lab.setStyleSheet("color: palette(placeholder-text); padding: 20px;")
+            lab.hide()
+            self.empty_labels.append(lab)
+            view.viewport().installEventFilter(self)
 
         self.results_model = QStandardItemModel(self)
         self.results_model.setHorizontalHeaderLabels(["Name", "Folder", "Date modified", "Size"])
@@ -289,10 +306,12 @@ class ExplorerWindow(QMainWindow):
         self.results.setDragEnabled(True)
         self.results.selectionModel().selectionChanged.connect(self._selection_changed)
 
+        self.results.viewport().installEventFilter(self)
         self.tiles = TilePage()
         self.tiles.activated.connect(self._tile_activated)
         self.tiles.context.connect(self._tile_menu)
 
+        self.tiles.viewport().installEventFilter(self)
         self.content = QStackedWidget()
         for w in (self.details, self.icons, self.results, self.tiles):
             self.content.addWidget(w)
@@ -384,9 +403,11 @@ class ExplorerWindow(QMainWindow):
         self.nav.labels = {k: str(self.settings.value("explorer/label_" + k, "") or "")
                            for k in LABEL_DEFAULTS}
         _w.LABEL_OVERRIDES.update({
-            "catamount:home": self.nav.labels["quick"] if win10 else self.nav.labels["home"],
-            "catamount:thispc": self.nav.labels["thispc"],
-            "catamount:network": self.nav.labels["network"]})
+            "catamount:home": self.nav.label("quick") if win10 else self.nav.label("home"),
+            "catamount:thispc": self.nav.label("thispc"),
+            "catamount:network": self.nav.label("network")})
+        if self.current_location():
+            self._show(self.current_location())
         self.nav.rebuild()
 
     def _update_tabrow(self):
@@ -469,14 +490,70 @@ class ExplorerWindow(QMainWindow):
     def _model_reset(self):
         QTimer.singleShot(0, self._after_reset)   # let the views reset first
 
+    def _save_view_state(self):
+        """Remember selection, current item and scroll position so a reload (the folder
+        changed on disk, a rename, a new file) doesn't throw them away."""
+        if not self.model.root:
+            return
+        cur = self.details.selectionModel().currentIndex()
+        self._saved_view = {
+            "root": self.model.root,
+            "selected": self.selected_paths() if self.content.currentWidget() in
+            (self.details, self.icons) else [],
+            "current": self.model.filePath(cur) if cur.isValid() else "",
+            "scroll": (self.details.verticalScrollBar().value(),
+                       self.icons.verticalScrollBar().value()),
+        }
+
     def _after_reset(self):
+        root = self.model.root
         if self.model.grouped():
-            for r in range(len(self.model.groups)):
+            collapsed = self._collapsed.get(root, set())
+            self._restoring_groups = True
+            for r, (label, _items) in enumerate(self.model.groups):
                 self.details.setFirstColumnSpanned(r, QModelIndex(), True)
-            self.details.expandAll()
+                self.details.setExpanded(self.model.index(r, 0), label not in collapsed)
+            self._restoring_groups = False
+        saved, self._saved_view = self._saved_view, None
+        if saved and saved["root"] == root and self.model.entries:
+            sm = self.details.selectionModel()
+            sm.blockSignals(True)
+            for p in saved["selected"]:
+                idx = self.model.index_for_path(p)
+                if idx.isValid():
+                    sm.select(idx, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+            cur = self.model.index_for_path(saved["current"]) if saved["current"] else QModelIndex()
+            if cur.isValid():
+                sm.setCurrentIndex(cur, QItemSelectionModel.NoUpdate)
+            sm.blockSignals(False)
+            self.details.verticalScrollBar().setValue(saved["scroll"][0])
+            self.icons.verticalScrollBar().setValue(saved["scroll"][1])
+        self._update_empty_message()
         self._update_status()
 
+    def _group_toggled(self, index, expanded):
+        if getattr(self, "_restoring_groups", False) or not self.model.is_group(index):
+            return
+        label = self.model.groups[index.row()][0]
+        s = self._collapsed.setdefault(self.model.root, set())
+        (s.discard if expanded else s.add)(label)
+
+    def _update_empty_message(self):
+        if not hasattr(self, "empty_labels"):
+            return
+        msg = ""
+        if not self.model.loading and not self.searching:
+            if self.model.error:
+                msg = self.model.error
+            elif self.model.root and not self.model.entries:
+                msg = "This folder is empty."
+        for lab in self.empty_labels:
+            lab.setText(msg)
+            lab.setVisible(bool(msg))
+            lab.setGeometry(lab.parentWidget().rect().adjusted(0, 30, 0, 0))
+
     def _dir_loaded(self, _path):
+        self._update_empty_message()
         pending = getattr(self, "_pending_select", None)
         if pending:
             self._pending_select = None
@@ -644,10 +721,12 @@ class ExplorerWindow(QMainWindow):
         self.fwd_btn.setEnabled(t["index"] < len(t["history"]) - 1)
         self.up_btn.setEnabled(loc not in PSEUDO)
         self.search.setPlaceholderText("Search %s" % location_label(loc))
-        self.nav.select_location(loc)
+        if not (explorer_setting(self.settings, "nav_follow", True) and self.nav.reveal(loc)):
+            self.nav.select_location(loc)
         if loc in PSEUDO:
             self._show_page(loc)
         else:
+            self._record_visit(loc)
             self._apply_folder_prefs(loc)
             self.model.setRootPath(loc)
             self.content.setCurrentWidget(self.icons if self.view_mode != "details" else self.details)
@@ -750,6 +829,60 @@ class ExplorerWindow(QMainWindow):
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2)
         self.ctl.apply_explorer_settings()
+
+    def _header_menu(self, pos):
+        hdr = self.details.header()
+        m = QMenu(self)
+        for col, label in ((DATE, "Date modified"), (TYPE, "Type"), (SIZE, "Size")):
+            a = m.addAction(label, lambda c=col: hdr.setSectionHidden(c, not hdr.isSectionHidden(c)))
+            a.setCheckable(True)
+            a.setChecked(not hdr.isSectionHidden(col))
+        m.addSeparator()
+        m.addAction("Size all columns to fit", lambda: [
+            self.details.resizeColumnToContents(c) for c in range(4) if not hdr.isSectionHidden(c)])
+        m.exec(hdr.mapToGlobal(pos))
+
+    # -- trash and archives --------------------------------------------------------
+
+    def in_trash(self):
+        loc = self.current_location() or ""
+        return loc.startswith("/") and (os.path.realpath(loc) == os.path.realpath(TRASH) or
+                                        os.path.basename(os.path.dirname(loc)).startswith(".Trash"))
+
+    def restore(self, paths):
+        errors = []
+        for p in paths:
+            try:
+                fileops.restore_from_trash(p)
+            except OSError as exc:
+                errors.append("%s: %s" % (os.path.basename(p), exc.strerror or exc))
+        if errors:
+            QMessageBox.warning(self, "Restore", "\n".join(errors[:15]))
+        self.status.setText("Restored %d item%s" % (len(paths) - len(errors),
+                                                    "" if len(paths) - len(errors) == 1 else "s"))
+
+    def extract(self, path):
+        self.status.setText("Extracting %s…" % os.path.basename(path))
+        run_async(self, lambda: fileops.extract_archive(path), lambda dest, err: (
+            QMessageBox.warning(self, "Extract", "Couldn't extract: %s" % err) if err
+            else (self.status.setText("Extracted to %s" % os.path.basename(dest)),
+                  self.select_paths([dest]))))
+
+    def compress(self, paths):
+        if not paths:
+            return
+        folder = os.path.dirname(paths[0])
+        base = os.path.splitext(os.path.basename(paths[0]))[0] if len(paths) == 1 else \
+            os.path.basename(folder) or "Archive"
+        name = base + ".zip"
+        if os.path.exists(os.path.join(folder, name)):
+            name = fileops.unique_name(folder, name, "n")
+        target = os.path.join(folder, name)
+        self.status.setText("Compressing…")
+        run_async(self, lambda: fileops.make_zip(paths, target), lambda r, err: (
+            QMessageBox.warning(self, "Compress", "Couldn't create the ZIP file: %s" % err) if err
+            else (self.undo_stack.append({"kind": "create", "path": target}),
+                  self.select_paths([target]))))
 
     def toggle_preview(self):
         on = not self.preview.isVisible()
@@ -858,6 +991,27 @@ class ExplorerWindow(QMainWindow):
     # tile pages
     # ======================================================================
 
+    def _record_visit(self, loc):
+        try:
+            visits = json.loads(self.settings.value("explorer/visits", "{}") or "{}")
+        except ValueError:
+            visits = {}
+        visits[loc] = visits.get(loc, 0) + 1
+        if len(visits) > 300:   # keep the most used
+            visits = dict(sorted(visits.items(), key=lambda kv: -kv[1])[:200])
+        self.settings.setValue("explorer/visits", json.dumps(visits))
+
+    def frequent_folders(self, limit=8):
+        try:
+            visits = json.loads(self.settings.value("explorer/visits", "{}") or "{}")
+        except ValueError:
+            return []
+        skip = set(self.nav.pinned) | {p for _n, p, _i in places.user_dirs()} | \
+            {os.path.expanduser("~"), "/"}
+        out = [p for p, _n in sorted(visits.items(), key=lambda kv: -kv[1])
+               if p not in skip and os.path.isdir(p)]
+        return out[:limit]
+
     def _show_page(self, loc):
         sections = []
         if loc == "catamount:home":
@@ -876,7 +1030,12 @@ class ExplorerWindow(QMainWindow):
                            "%s · %s" % (os.path.dirname(p).replace(os.path.expanduser("~"), "~"),
                                         ago(ts)))
                       for p, ts in recent_files(16)]
-            sections = [("Quick access", pinned + folders), ("Recent", recent)]
+            frequent = [Tile(p, theme.get().icon("folder"), os.path.basename(p.rstrip("/")) or p,
+                             p.replace(os.path.expanduser("~"), "~"))
+                        for p in self.frequent_folders()]
+            sections = [("Quick access", pinned + [t_ for t_ in folders
+                                                   if t_.key not in self.nav.pinned]),
+                        ("Frequent folders", frequent), ("Recent files", recent)]
         elif loc == "catamount:thispc":
             folders = [Tile(path, theme.get().icon("folder"), name, "") for name, path, _i in
                        places.user_dirs()]
@@ -1211,8 +1370,39 @@ class ExplorerWindow(QMainWindow):
                 return
         QMessageBox.warning(self, "Explorer", "No terminal app was found.")
 
+    ZOOM_STEPS = ("details", "small", "medium", "large", "xl")
+
     def eventFilter(self, obj, event):
-        if obj in (self.details, self.icons) and event.type() == event.Type.KeyPress:
+        et = event.type()
+        viewports = (self.details.viewport(), self.icons.viewport())
+        if obj in viewports and et == event.Type.Resize:
+            for lab in self.empty_labels:
+                if lab.parentWidget() is obj:
+                    lab.setGeometry(obj.rect().adjusted(0, 30, 0, 0))
+        if et == event.Type.MouseButtonPress and obj in viewports + (self.results.viewport(),
+                                                                    self.tiles.viewport()):
+            btn = event.button()
+            if btn == Qt.BackButton:
+                self.back()
+                return True
+            if btn == Qt.ForwardButton:
+                self.forward()
+                return True
+            if btn == Qt.MiddleButton and obj in viewports:
+                view = self.details if obj is viewports[0] else self.icons
+                path = self.model.filePath(view.indexAt(event.position().toPoint()))
+                if path and os.path.isdir(path):
+                    here = self.tabbar.currentIndex()
+                    self.new_tab(path)               # opens in the background, like Explorer
+                    self.tabbar.setCurrentIndex(here)
+                    return True
+        if et == event.Type.Wheel and obj in viewports and event.modifiers() & Qt.ControlModifier:
+            steps = self.ZOOM_STEPS
+            cur = self.view_mode if self.view_mode in steps else "details"
+            i = steps.index(cur) + (1 if event.angleDelta().y() > 0 else -1)
+            self.set_view(steps[max(0, min(len(steps) - 1, i))])
+            return True
+        if obj in (self.details, self.icons) and et == event.Type.KeyPress:
             if event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.current_view().state() != \
                     QAbstractItemView.EditingState:
                 paths = self.selected_paths()
@@ -1224,6 +1414,14 @@ class ExplorerWindow(QMainWindow):
                             self.open_file(p)
                 return True
         return super().eventFilter(obj, event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.BackButton:
+            self.back()
+        elif event.button() == Qt.ForwardButton:
+            self.forward()
+        else:
+            super().mousePressEvent(event)
 
     # ======================================================================
     # file operations
@@ -1458,6 +1656,13 @@ class ExplorerWindow(QMainWindow):
                 ow.addAction(_app_icon(app.icon), app.name, lambda a=app: a.launch([one]))
             ow.addSeparator()
             ow.addAction("Choose another app…", lambda: self.open_with(one))
+        if self.in_trash():
+            m.addSeparator()
+            m.addAction(t.icon("undo") if not t.icon("undo").isNull() else t.icon("back"),
+                        "Restore", lambda: self.restore(paths))
+        if one and fileops.is_archive(one):
+            m.addAction(t.icon("open"), "Extract all…", lambda: self.extract(one))
+        m.addAction(t.icon("new"), "Compress to ZIP file", lambda: self.compress(paths))
         m.addSeparator()
         m.addAction(t.icon("cut"), "Cut", lambda: self.copy_selection(cut=True))
         m.addAction(t.icon("copy"), "Copy", lambda: self.copy_selection())
@@ -1512,6 +1717,11 @@ class ExplorerWindow(QMainWindow):
         for act in self.new_menu.actions():
             new.addAction(act)
         loc = self.current_location()
+        if self.in_trash():
+            m.addSeparator()
+            m.addAction("Restore all items", lambda: self.restore(
+                [e.path for e in self.model.entries]))
+            m.addAction(t.icon("trash"), "Empty Trash", self.empty_trash)
         m.addSeparator()
         m.addAction(t.icon("terminal"), "Open in terminal", lambda: self.open_terminal(loc))
         m.addAction(t.icon("pin"), "Pin to Quick access", lambda: self.pin(loc))

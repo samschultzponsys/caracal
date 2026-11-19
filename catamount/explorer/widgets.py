@@ -56,6 +56,16 @@ class AddressBar(QFrame):
         self.crumb_lay.setSpacing(0)
         self.edit = QLineEdit()
         self.edit.setFrame(False)
+        # Folder autocomplete while typing a path.
+        from PySide6.QtCore import QDir
+        from PySide6.QtWidgets import QCompleter, QFileSystemModel
+        self._fs = QFileSystemModel(self)
+        self._fs.setFilter(QDir.AllDirs | QDir.NoDotAndDotDot)
+        self._fs.setRootPath("/")
+        comp = QCompleter(self._fs, self)
+        comp.setCaseSensitivity(Qt.CaseInsensitive)
+        comp.setCompletionMode(QCompleter.PopupCompletion)
+        self.edit.setCompleter(comp)
         self.edit.returnPressed.connect(self._typed)
         self.edit.installEventFilter(self)
         self.stack.addWidget(self.crumbs)

@@ -2,6 +2,28 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-19 — v0.6: Explorer polish toward v1
+
+Sam: "just want to get a good v1 of the explorer built" (tray icon parked).
+- Reload no longer loses state: modelAboutToBeReset saves selected paths/current/scroll;
+  _after_reset restores them when the root is unchanged; collapsed group labels kept per
+  folder in `_collapsed` (expanded/collapsed signals, ignored while restoring).
+- Model reports `error` (permission/missing/other) from the scan thread; overlay labels in
+  both views' viewports show it, or "This folder is empty."
+- eventFilter on viewports: Back/Forward mouse buttons, middle-click → background tab,
+  Ctrl+wheel steps details→small→medium→large→xl. Window mousePressEvent handles
+  back/forward too.
+- AddressBar edit has a QCompleter over a dirs-only QFileSystemModel.
+- NavPane.reveal(loc) expands to the folder (prefers expandable This PC entries over pins);
+  setting explorer/nav_follow (default on).
+- Header context menu hides/shows columns (saved with the header state).
+- explorer/visits counts → "Frequent folders" on the Home page.
+- fileops: trash_original/restore_from_trash (handles relative paths in .Trash-uid),
+  extract_archive (zip with zip-slip check, tarfile filter="data", 7z/bsdtar for 7z/rar/zst),
+  make_zip. Window: in_trash, restore, extract, compress.
+- Not done yet: rubber-band selection in Details view; grouping in icon views; Trash
+  "Original location"/"Date deleted" as real columns (tooltip for now).
+
 ## 2026-11-19 — v0.5: CataMount Explorer (preview)
 
 Sam: Dolphin can't be made to look enough like Windows Explorer; wants an Explorer-like

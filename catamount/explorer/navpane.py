@@ -229,6 +229,44 @@ class NavPane(QTreeView):
         if index.isValid() and index.data(LOC):
             self.context.emit(index.data(LOC), pos)
 
+    def reveal(self, loc):
+        """Expand the tree down to loc and select it (Explorer's "expand to open folder").
+        Only walks folders under a root item that contains loc."""
+        if not loc.startswith("/"):
+            return False
+        best = None
+
+        def walk(parent):
+            nonlocal best
+            for r in range(self.model_.rowCount(parent)):
+                idx = self.model_.index(r, 0, parent)
+                lazy = idx.data(LAZY) or (idx.data(LOC) if (idx.data(LOC) or "").startswith("/") else None)
+                if lazy and (loc == lazy or loc.startswith(lazy.rstrip("/") + "/")):
+                    rank = (len(lazy), bool(idx.data(LAZY)))   # prefer expandable entries
+                    if best is None or rank > best[2]:
+                        best = (idx, lazy, rank)
+                if idx.data(LOC) in ("catamount:home", "catamount:thispc", "catamount:network"):
+                    walk(idx)
+        walk(self.model_.index(-1, -1))
+        if best is None:
+            return False
+        idx, base, _rank = best
+        rel = loc[len(base):].strip("/")
+        for part in [p for p in rel.split("/") if p]:
+            self.expand(idx)
+            item = self.model_.itemFromIndex(idx)
+            nxt = None
+            for r in range(item.rowCount()):
+                if item.child(r).text() == part:
+                    nxt = item.child(r).index()
+                    break
+            if nxt is None:
+                break
+            idx = nxt
+        self.setCurrentIndex(idx)
+        self.scrollTo(idx)
+        return True
+
     def select_location(self, loc):
         """Highlight the item for loc (best effort, top two levels)."""
         def walk(parent, depth):
