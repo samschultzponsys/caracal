@@ -4,16 +4,20 @@
 
 import os
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QPersistentModelIndex, QSize, Qt, Signal
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QAbstractItemView, QStyledItemDelegate, QTreeView
 
+from caracal import fsinfo
+from caracal.background import run_async
 from caracal.explorer import places, theme
 
 LOC = Qt.UserRole
 LAZY = Qt.UserRole + 1          # folder path whose subfolders load on expand
 PINNED = Qt.UserRole + 2        # draw a pin at the right edge (Quick access)
 SPACER = Qt.UserRole + 3        # blank gap between sections
+LOADING = Qt.UserRole + 4       # placeholder row while subfolders load
+STATUS = Qt.UserRole + 5        # network drive dot: "up", "busy", "down"
 
 LABEL_DEFAULTS = {"quick": "Quick access", "home": "Home", "thispc": "This PC",
                   "network": "Network", "trash": "Trash", "homefolder": "Home folder"}
@@ -24,6 +28,22 @@ class PinDelegate(QStyledItemDelegate):
         if index.data(SPACER):
             return
         super().paint(painter, option, index)
+        dot = index.data(STATUS)
+        if dot:
+            from PySide6.QtGui import QColor, QPen
+            painter.save()
+            painter.setRenderHint(painter.RenderHint.Antialiasing)
+            r = option.rect
+            icon = option.decorationSize
+            # bottom-right corner of the icon, like an overlay badge
+            x = r.left() + 4 + icon.width() - 5
+            y = r.top() + (r.height() + icon.height()) // 2 - 6
+            color = {"up": "#2fb344", "busy": "#e8a317", "down": "#d93025"}[dot]
+            painter.setPen(QPen(theme.color("content") if "content" in theme.get().colors()
+                                else QColor("white"), 1.5))
+            painter.setBrush(QColor(color))
+            painter.drawEllipse(x, y, 7, 7)
+            painter.restore()
         if index.data(PINNED):
             r = option.rect
             x, y = r.right() - 16, r.top() + (r.height() - 12) // 2
@@ -125,14 +145,40 @@ class NavPane(QTreeView):
             server = d.spec.get("server", "")
             label = ("%s (\\\\%s)" % (d.name, server) if d.kind == "smb" else
                      "%s (%s:)" % (d.name, server)) if mapped_style else d.name
-            out.append(self._item(label, "drive-network" if up else "drive-network-offline",
-                                  "net:sys:" + d.id, lazy=d.mount_point if up else None))
+            it = self._item(label, "drive-network" if up else "drive-network-offline",
+                            "net:sys:" + d.id, lazy=d.mount_point if up else None)
+            self._set_status(it, d.state, d.mount_point)
+            fast = getattr(self, "faster", {}).get(d.id)
+            if fast:
+                it.setToolTip(it.toolTip() + "\nFaster connection available: this folder is also "
+                              "shared over NFS (%s). Right-click to map it." % fast)
+            out.append(it)
         for loc in self.locations:
             up = loc.state == "connected"
             label = "%s (%s)" % (loc.name, loc.spec.get("host") or loc.kind) if mapped_style else loc.name
-            out.append(self._item(label, "drive-network" if up else "drive-network-offline",
-                                  "net:user:" + loc.id, lazy=loc.mount_point if up else None))
+            it = self._item(label, "drive-network" if up else "drive-network-offline",
+                            "net:user:" + loc.id, lazy=loc.mount_point if up else None)
+            self._set_status(it, loc.state, loc.mount_point)
+            out.append(it)
         return out
+
+    def _set_status(self, it, state, mount_point):
+        """Green dot when mounted, amber while connecting, red when not mounted (an
+        automount that hasn't been opened yet counts as not mounted)."""
+        mounted = fsinfo.is_mounted(mount_point) if mount_point else False
+        if state == "connecting":
+            dot = "busy"
+        elif mounted and not fsinfo.is_unresponsive(mount_point):
+            dot = "up"
+        else:
+            dot = "down"
+        it.setData(dot, STATUS)
+        from caracal.model import STATE_LABELS
+        text = {"up": "Connected", "busy": "Connecting…"}.get(dot) or \
+            ("Not responding" if mounted else STATE_LABELS.get(state, "Not connected"))
+        if state == "ready" and not mounted:
+            text = "Not connected (connects when you open it)"
+        it.setToolTip("%s\n%s\n%s" % (it.text(), mount_point or "", text))
 
     def _spacer(self):
         it = QStandardItem("")
@@ -176,7 +222,7 @@ class NavPane(QTreeView):
         top = self._item(self.label("quick" if win10 else "home"), "quick-access" if win10 else "home",
                          "caracal:home")
         for path in self.pinned:
-            if os.path.isdir(path):
+            if fsinfo.isdir_or_assume(path):
                 it = self._item(os.path.basename(path.rstrip("/")) or path, "folder", path,
                                 lazy=None, icon=self._pin_icon(path))
                 it.setData(True, PINNED)
@@ -245,6 +291,7 @@ class NavPane(QTreeView):
         return out
 
     def _restore_expanded(self, locs):
+        self._restore_locs = set(locs)      # deeper levels re-open as their parents load
         def walk(parent):
             for r in range(self.model_.rowCount(parent)):
                 idx = self.model_.index(r, 0, parent)
@@ -254,28 +301,66 @@ class NavPane(QTreeView):
         walk(self.model_.index(-1, -1))
 
     def _expand(self, index):
+        """Load a folder's subfolders in the background: on a slow or dropped network share
+        this used to freeze the whole window."""
         item = self.model_.itemFromIndex(index)
         path = item.data(LAZY)
-        if not path or (item.rowCount() == 1 and item.child(0).data(LOC)) or \
-                (item.rowCount() and item.child(0).text() != "…"):
+        if path and item.rowCount() == 1 and item.child(0).text() == "Not responding":
+            item.child(0).setText("…")          # try again
+        if not path or item.rowCount() != 1 or item.child(0).text() != "…" or \
+                item.child(0).data(LOADING):
+            return
+        item.child(0).setData(True, LOADING)
+        item.child(0).setText("Loading…")
+        target = QPersistentModelIndex(index)
+        remote = fsinfo.is_remote(path)
+
+        def work():
+            names = fsinfo.listdirs(path, timeout=8.0)
+            if names is None:
+                return None
+            out = []
+            for name in names:
+                sub = os.path.join(path, name)
+                # Looking inside every subfolder costs a round trip each on a network
+                # share, so there we just offer the arrow and find out on expand.
+                if remote or len(names) >= 200 or fsinfo.is_remote(sub):
+                    has_sub = True
+                else:
+                    try:
+                        with os.scandir(sub) as it:
+                            has_sub = any(not x.name.startswith(".") and x.is_dir() for x in it)
+                    except OSError:
+                        has_sub = False
+                out.append((name, sub, has_sub))
+            return out
+
+        run_async(self, work, lambda res, _err: self._expand_done(target, path, res))
+
+    def _expand_done(self, target, path, subs):
+        if not target.isValid():
+            return                      # the pane was rebuilt meanwhile
+        item = self.model_.itemFromIndex(self.model_.index(target.row(), target.column(),
+                                                           target.parent()))
+        if item is None or item.data(LAZY) != path:
             return
         item.removeRows(0, item.rowCount())
-        try:
-            subs = sorted((e for e in os.scandir(path)
-                           if e.is_dir() and not e.name.startswith(".")),
-                          key=lambda e: e.name.lower())
-        except OSError:
-            subs = []
-        for e in subs[:500]:
-            child = self._item(e.name, "folder", e.path, icon=theme.get().icon("folder"))
-            try:
-                has_sub = any(x.is_dir() for x in os.scandir(e.path)) if len(subs) < 200 else True
-            except OSError:
-                has_sub = False
+        if subs is None:
+            note = QStandardItem("Not responding")
+            note.setFlags(Qt.NoItemFlags)
+            note.setToolTip("The folder didn't answer in time. Collapse and expand to retry.")
+            item.appendRow(note)
+            return
+        for name, sub, has_sub in subs:
+            child = self._item(name, "folder", sub, icon=theme.get().icon("folder"))
             if has_sub:
-                child.setData(e.path, LAZY)
+                child.setData(sub, LAZY)
                 child.appendRow(QStandardItem("…"))
             item.appendRow(child)
+            if has_sub and sub in getattr(self, "_restore_locs", ()):
+                self.expand(self.model_.indexFromItem(child))
+        if not subs and self.isExpanded(self.model_.indexFromItem(item)):
+            self.collapse(self.model_.indexFromItem(item))
 
     def _clicked(self, index):
         loc = index.data(LOC)

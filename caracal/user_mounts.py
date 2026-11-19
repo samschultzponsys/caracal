@@ -18,6 +18,8 @@ import subprocess
 import uuid
 from dataclasses import dataclass
 
+from caracal import fsinfo
+
 MANAGED_HEADER = "# Managed by Caracal"
 SPEC_PREFIX = "# Caracal-Spec: "
 LEGACY = ("# Managed by CataMount", "# CataMount-Spec: ", "catamount-")   # before the rename
@@ -360,7 +362,7 @@ def refresh_states(locations):
     for loc in locations:
         active = states.get(loc.unit, "")
         if active == "active":
-            loc.state = "connected" if os.path.ismount(loc.mount_point) else "connecting"
+            loc.state = "connected" if fsinfo.is_mounted(loc.mount_point) else "connecting"
         elif active in ("activating", "reloading"):
             loc.state = "connecting"
         elif active == "failed":

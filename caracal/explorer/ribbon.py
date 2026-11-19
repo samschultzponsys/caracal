@@ -90,6 +90,7 @@ class Ribbon(QWidget):
         h.setSpacing(0)
         # Quick Access Toolbar (Explorer has it in the title bar, top left).
         self.qat = QWidget()
+        self.qat.setObjectName("QAT")
         self.qat_lay = QHBoxLayout(self.qat)
         self.qat_lay.setContentsMargins(0, 0, 6, 0)
         self.qat_lay.setSpacing(0)
@@ -176,6 +177,7 @@ class Ribbon(QWidget):
                 b.setToolTip(tip)
                 b.setAutoRaise(True)
                 b._slot = slot
+                b._qat_key = key
                 b.clicked.connect(lambda _c=False, k=key: self._qat_run(k))
                 self.qat_lay.addWidget(b)
         more = QToolButton()
@@ -191,6 +193,28 @@ class Ribbon(QWidget):
             a.setChecked(key in chosen)
         more.setMenu(menu)
         self.qat_lay.addWidget(more)
+        if hasattr(self.win, "status"):
+            self.update_qat_state()
+
+    def update_qat_state(self):
+        """Grey out commands that can't work here (like Explorer does on This PC)."""
+        from caracal.explorer.widgets import PSEUDO
+        w = self.win
+        loc = w.current_location() or ""
+        real = bool(loc) and loc not in PSEUDO and not w.searching
+        has_sel = bool(w.selected_paths())
+        can = {"properties": real or has_sel, "new-folder": real, "delete": has_sel,
+               "rename": has_sel, "refresh": bool(loc), "terminal": real,
+               "undo": bool(w.undo_stack)}
+        for i in range(self.qat_lay.count()):
+            b = self.qat_lay.itemAt(i).widget()
+            key = getattr(b, "_qat_key", None)
+            if key:
+                b.setEnabled(can.get(key, True))
+                if key == "new-folder" and not real:
+                    b.setToolTip("New folder (open a folder first)")
+                elif key == "new-folder":
+                    b.setToolTip("New folder (Ctrl+Shift+N)")
 
     def _qat_toggle(self, key):
         import json

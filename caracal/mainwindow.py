@@ -609,11 +609,35 @@ class MainWindow(QMainWindow):
         if self.tray is None and self.isVisible() and self.tray_wanted():
             self._update_tray()  # e.g. the tray host appeared after we started
         self._update_tray_status()
+        self._notify_drive_listeners()
+        self._probe_faster()
+
+    def _notify_drive_listeners(self):
         for fn in list(self.drive_listeners):
             try:
                 fn()
             except RuntimeError:          # window already deleted
                 self.drive_listeners.remove(fn)
+
+    def _probe_faster(self):
+        """In the background, look for SMB drives whose server also exports the folder over
+        NFS (usually faster from Linux). Results show in Explorer's navigation pane."""
+        from caracal import fastpath
+        if not hasattr(self, "faster"):
+            self.faster = {}            # drive id -> "server:/export"
+            self._probing = set()
+        for d in self.drives:
+            server = d.spec.get("server", "")
+            if d.kind != "smb" or not server or d.id in self._probing:
+                continue
+            self._probing.add(d.id)
+
+            def done(res, _err, d=d, server=server):
+                if res and res.get("export"):
+                    self.faster[d.id] = "%s:%s" % (server, res["export"])
+                    self._notify_drive_listeners()
+            run_async(self, lambda s=server, sh=d.spec.get("share", ""):
+                      fastpath.nfs_alternative(s, sh), done)
 
     def _update_actions(self):
         d = self.selected()

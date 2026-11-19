@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import threading
 import time
@@ -16,11 +17,11 @@ from PySide6.QtCore import (QItemSelectionModel, QModelIndex, QMimeData, QMimeDa
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QFrame, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QListView, QMainWindow, QMenu, QMessageBox, QSplitter, QStackedWidget, QTabBar,
+    QLineEdit, QListView, QMainWindow, QMenu, QMessageBox, QProgressBar, QSplitter, QStackedWidget, QTabBar,
     QToolButton, QTreeView, QVBoxLayout, QWidget,
 )
 
-from caracal import indexdb, user_mounts
+from caracal import fsinfo, indexdb, user_mounts
 from caracal.background import run_async
 from caracal.explorer import fileops, openwith, places, theme
 from caracal.explorer.dialogs import (LocationDialog, OpenWithDialog, OperationDialog,
@@ -230,6 +231,11 @@ class ExplorerWindow(QMainWindow):
         self.model.on_rename = lambda old, new: self.undo_stack.append(
             {"kind": "rename", "old": old, "new": new})
         self.model.directoryLoaded.connect(self._dir_loaded)
+        self.model.progress.connect(self._update_status)
+        self._free = {}               # folder -> (time, "12.3 GB free")
+        self._busy_timer = QTimer(self)   # keeps "waiting for the server" text current
+        self._busy_timer.setInterval(1000)
+        self._busy_timer.timeout.connect(self._update_status)
         self.model.modelAboutToBeReset.connect(self._save_view_state)
         self.model.modelReset.connect(self._model_reset)
         self._saved_view = None
@@ -359,6 +365,14 @@ class ExplorerWindow(QMainWindow):
         self.version_label.setTextFormat(Qt.RichText)
         self.version_label.linkActivated.connect(lambda _l: self.ctl.show_changelog())
         sb.addWidget(self.version_label)
+        # Busy bar, like the green one Explorer runs in its address bar while a folder loads.
+        self.busy = QProgressBar()
+        self.busy.setObjectName("BusyBar")
+        self.busy.setRange(0, 0)
+        self.busy.setTextVisible(False)
+        self.busy.setFixedSize(90, 8)
+        self.busy.hide()
+        sb.addWidget(self.busy)
         self.status = QLabel()
         sb.addWidget(self.status, 1)
         self.refresh_version()
@@ -480,12 +494,12 @@ class ExplorerWindow(QMainWindow):
         p = self._prefs().get(loc, {})
         if key in p:
             return p[key]
-        if key in ("group", "sort") and loc and os.path.realpath(loc) in self._download_dirs():
+        if key in ("group", "sort") and loc and fsinfo.realpath(loc) in self._download_dirs():
             return "date" if key == "group" else [DATE, int(Qt.DescendingOrder.value)]
         return default
 
     def _download_dirs(self):
-        return {os.path.realpath(p) for _n, p, icon in places.user_dirs() if icon == "folder-download"}
+        return {fsinfo.realpath(p) for _n, p, icon in places.user_dirs() if icon == "folder-download"}
 
     def _save_folder_pref(self, key, value):
         loc = self.current_location()
@@ -730,11 +744,14 @@ class ExplorerWindow(QMainWindow):
             loc = TRASH
         if loc not in PSEUDO:
             loc = os.path.abspath(os.path.expanduser(loc))
-            if not os.path.exists(loc):
+            kind = fsinfo.call(lambda p: "file" if os.path.isfile(p) else
+                               "dir" if os.path.exists(p) else "missing", loc, default="slow",
+                               timeout=0.3, mark_dead=False)
+            if kind == "missing":
                 QMessageBox.warning(self, "Explorer", "Can't find “%s”. Check the spelling and "
                                     "try again." % loc)
                 return
-            if os.path.isfile(loc):
+            if kind == "file":
                 self.go(os.path.dirname(loc))
                 self.select_paths([loc])
                 return
@@ -974,7 +991,7 @@ class ExplorerWindow(QMainWindow):
 
     def in_trash(self):
         loc = self.current_location() or ""
-        return loc.startswith("/") and (os.path.realpath(loc) == os.path.realpath(TRASH) or
+        return loc.startswith("/") and (fsinfo.realpath(loc) == fsinfo.realpath(TRASH) or
                                         os.path.basename(os.path.dirname(loc)).startswith(".Trash"))
 
     def restore(self, paths):
@@ -1003,7 +1020,7 @@ class ExplorerWindow(QMainWindow):
         base = os.path.splitext(os.path.basename(paths[0]))[0] if len(paths) == 1 else \
             os.path.basename(folder) or "Archive"
         name = base + ".zip"
-        if os.path.exists(os.path.join(folder, name)):
+        if fsinfo.exists(os.path.join(folder, name)):
             name = fileops.unique_name(folder, name, "n")
         target = os.path.join(folder, name)
         self.status.setText("Compressing…")
@@ -1131,7 +1148,7 @@ class ExplorerWindow(QMainWindow):
         m.addAction(theme.get().icon("network"), "Manage network drives…", self.ctl.show_window)
         m.addAction(theme.get().icon("search"), "Instant search (all indexed drives)…",
                     lambda: self.ctl.open_search())
-        if loc and os.path.realpath(loc) == os.path.realpath(TRASH):
+        if loc and fsinfo.realpath(loc) == fsinfo.realpath(TRASH):
             m.addAction(theme.get().icon("trash"), "Empty Trash", self.empty_trash)
         m.addSeparator()
         m.addAction(theme.get().icon("settings"), "Options", self.ctl.preferences)
@@ -1162,7 +1179,7 @@ class ExplorerWindow(QMainWindow):
         skip = set(self.nav.pinned) | {p for _n, p, _i in places.user_dirs()} | \
             {os.path.expanduser("~"), "/"}
         out = [p for p, _n in sorted(visits.items(), key=lambda kv: -kv[1])
-               if p not in skip and os.path.isdir(p)]
+               if p not in skip and fsinfo.isdir_or_assume(p)]
         return out[:limit]
 
     def _show_page(self, loc):
@@ -1170,7 +1187,7 @@ class ExplorerWindow(QMainWindow):
         if loc == "caracal:home":
             pinned = [Tile(p, theme.get().icon("folder"), os.path.basename(p.rstrip("/")) or p,
                            p.replace(os.path.expanduser("~"), "~"))
-                      for p in self.nav.pinned if os.path.isdir(p)]
+                      for p in self.nav.pinned if fsinfo.isdir_or_assume(p)]
             folders = [Tile(path, theme.get().icon({"user-desktop": "desktop",
                                                      "folder-download": "downloads",
                                                      "folder-documents": "documents",
@@ -1252,10 +1269,13 @@ class ExplorerWindow(QMainWindow):
     # ======================================================================
 
     def _drives_changed(self):
+        fsinfo.invalidate()
         locs = user_mounts.load_locations()
         user_mounts.refresh_states(locs)
-        sig = ([(d.id, d.name, d.state) for d in self.ctl.drives],
-               [(l.id, l.name, l.state) for l in locs])
+        faster = dict(getattr(self.ctl, "faster", {}))
+        sig = ([(d.id, d.name, d.state, fsinfo.is_mounted(d.mount_point)) for d in self.ctl.drives],
+               [(l.id, l.name, l.state) for l in locs], sorted(faster.items()))
+        self.nav.faster = faster
         self.nav.locations = locs
         self.nav.drives = list(self.ctl.drives)
         pinned = self._load_pins()
@@ -1284,13 +1304,13 @@ class ExplorerWindow(QMainWindow):
             for v in places.mounted_volumes():
                 if v.path == loc and v.removable:
                     m.addAction(t.icon("eject"), "Eject", lambda p=loc: self.eject(p))
-            if os.path.realpath(loc) == os.path.realpath(TRASH):
+            if fsinfo.realpath(loc) == fsinfo.realpath(TRASH):
                 m.addAction(t.icon("trash"), "Empty Trash", self.empty_trash)
             m.addAction(t.icon("properties"), "Properties", lambda: PropertiesDialog([loc], self).exec())
         elif loc.startswith("net:sys:") or loc.startswith("net:user:"):
             self._net_actions(m, loc)
             mp = self._net_mount_point(loc)
-            if mp and os.path.ismount(mp):
+            if mp and fsinfo.is_mounted(mp):
                 self._index_menu(m, mp)
         elif loc in ("caracal:home", "caracal:thispc", "caracal:network"):
             m.addAction(t.icon("open"), "Open", lambda: self.go(loc))
@@ -1359,6 +1379,11 @@ class ExplorerWindow(QMainWindow):
             if d.state != "disconnected":
                 m.addAction(theme.get().icon("disconnect"), "Disconnect",
                             lambda: self.ctl._run_on(d, "disconnect"))
+            fast = getattr(self.ctl, "faster", {}).get(d.id)
+            if fast:
+                m.addAction(theme.get().icon("drive-network"),
+                            "Faster connection available: map %s over NFS…" % fast,
+                            lambda: self.ctl.add_drive(fast, "nfs"))
             m.addSeparator()
             m.addAction(theme.get().icon("properties"), "Edit…", lambda: self.ctl.edit_drive_obj(d))
             m.addAction(theme.get().icon("delete"), "Remove…", lambda: self.ctl.remove_drive_obj(d))
@@ -1405,7 +1430,7 @@ class ExplorerWindow(QMainWindow):
         run_async(self, lambda: user_mounts.connect(l_), done)
 
     def _wait_mounted(self, mp, tries):
-        if os.path.ismount(mp):
+        if fsinfo.is_mounted(mp):
             self._drives_changed()
             self.go(mp)
         elif tries > 0:
@@ -1493,6 +1518,8 @@ class ExplorerWindow(QMainWindow):
     def _update_status(self):
         if not hasattr(self, "status"):
             return
+        if getattr(self, "ribbon", None) is not None and hasattr(self.ribbon, "update_qat_state"):
+            self.ribbon.update_qat_state()
         loc = self.current_location()
         if self.searching:
             n = self.results_model.rowCount()
@@ -1503,24 +1530,64 @@ class ExplorerWindow(QMainWindow):
         if not loc or loc in PSEUDO:
             self.status.setText("")
             return
-        if self.model.loading and not self.model.item_count():
-            self.status.setText("Working on it…")
-            return
+        busy = self.model.loading or self.model.details_left() > 0
+        self._set_busy(busy)
+        if self.model.loading:
+            waited = time.monotonic() - getattr(self.model, "load_started", time.monotonic())
+            got = self.model.loaded_count
+            if got:
+                text = "Loading… %s items so far" % format(got, ",")
+            elif waited > 5 and fsinfo.is_remote(loc):
+                mp = fsinfo.mount_for(loc)[0]
+                text = "Waiting for the server (%s) to respond… %d s" % (
+                    os.path.basename(mp) or mp, waited)
+            else:
+                text = "Working on it…"
+            if not self.model.item_count() or got:
+                self.status.setText(text)
+                return
         n = self.model.item_count()
         sel = self.selected_paths()
         text = "%s item%s" % (format(n, ","), "" if n == 1 else "s")
         if self.model.filters:
             text = "%s of %s items (filtered)" % (format(n, ","), format(self.model.total_count(), ","))
         if sel:
-            size = sum(os.path.getsize(p) for p in sel if os.path.isfile(p))
+            # sizes come from the folder listing: no extra trips to a network share
+            by_path = self.model._by_path
+            size = sum(by_path[p].size for p in sel if p in by_path and not by_path[p].is_dir)
             text += "   |   %d item%s selected%s" % (len(sel), "" if len(sel) == 1 else "s",
                                                       ("  " + format_size(size)) if size else "")
-        try:
-            st = os.statvfs(loc)
-            text += "   |   %s free" % format_size(st.f_bavail * st.f_frsize)
-        except OSError:
-            pass
+        left = self.model.details_left()
+        if left:
+            text += "   |   Reading details… %s left" % format(left, ",")
+        free = self._free_space(loc)
+        if free:
+            text += "   |   " + free
         self.status.setText(text)
+
+    def _set_busy(self, on):
+        if on != self.busy.isVisible():
+            self.busy.setVisible(on)
+        if on and not self._busy_timer.isActive():
+            self._busy_timer.start()
+        elif not on and self._busy_timer.isActive():
+            self._busy_timer.stop()
+
+    def _free_space(self, loc):
+        """Free space for the status bar, read in the background and cached for 15 s."""
+        cached = self._free.get(loc)
+        if cached and time.monotonic() - cached[0] < 15:
+            return cached[1]
+        if cached is None or cached[0] >= 0:
+            self._free[loc] = (-1, cached[1] if cached else "")      # in flight
+
+            def got(st, _err, loc=loc):
+                text = ("%s free" % format_size(st.f_bavail * st.f_frsize)) if st else ""
+                self._free[loc] = (time.monotonic(), text)
+                if text and self.current_location() == loc:
+                    self._update_status()
+            run_async(self, lambda: fsinfo.statvfs(loc, timeout=5), got)
+        return cached[1] if cached else ""
 
     def _type_ahead(self, view, buf):
         model = self.model
@@ -1573,7 +1640,7 @@ class ExplorerWindow(QMainWindow):
         path = self.model.filePath(index)
         if not path:
             return
-        if os.path.isdir(path):
+        if fsinfo.isdir(path):
             self.go(path)
         else:
             self.open_file(path)
@@ -1630,7 +1697,7 @@ class ExplorerWindow(QMainWindow):
             if btn == Qt.MiddleButton and obj in viewports:
                 view = self.details if obj is viewports[0] else self.icons
                 path = self.model.filePath(view.indexAt(event.position().toPoint()))
-                if path and os.path.isdir(path):
+                if path and fsinfo.isdir(path):
                     here = self.tabbar.currentIndex()
                     self.new_tab(path)               # opens in the background, like Explorer
                     self.tabbar.setCurrentIndex(here)
@@ -1645,11 +1712,11 @@ class ExplorerWindow(QMainWindow):
             if event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.current_view().state() != \
                     QAbstractItemView.EditingState:
                 paths = self.selected_paths()
-                if len(paths) == 1 and os.path.isdir(paths[0]):
+                if len(paths) == 1 and fsinfo.isdir(paths[0]):
                     self.go(paths[0])
                 else:
                     for p in paths[:20]:
-                        if os.path.isfile(p):
+                        if fsinfo.isfile(p):
                             self.open_file(p)
                 return True
         return super().eventFilter(obj, event)
@@ -1717,7 +1784,7 @@ class ExplorerWindow(QMainWindow):
         if not paths and md.hasImage():
             img = md.imageData()
             name = fileops.unique_name(loc, "Pasted image.png", "n") \
-                if os.path.exists(os.path.join(loc, "Pasted image.png")) else "Pasted image.png"
+                if fsinfo.exists(os.path.join(loc, "Pasted image.png")) else "Pasted image.png"
             img.save(os.path.join(loc, name))
             return
         if not paths:
@@ -1732,7 +1799,7 @@ class ExplorerWindow(QMainWindow):
             return
         n = len(paths)
         what = "“%s”" % os.path.basename(paths[0]) if n == 1 else "these %d items" % n
-        in_trash = all(os.path.realpath(p).startswith(os.path.realpath(TRASH)) for p in paths)
+        in_trash = all(fsinfo.realpath(p).startswith(fsinfo.realpath(TRASH)) for p in paths)
         if permanent or in_trash:
             if QMessageBox.question(self, "Delete", "Permanently delete %s?\n\nThis can't be "
                                     "undone." % what) != QMessageBox.Yes:
@@ -1755,7 +1822,7 @@ class ExplorerWindow(QMainWindow):
         if not loc or loc in PSEUDO:
             return
         name = "New folder"
-        if os.path.exists(os.path.join(loc, name)):
+        if fsinfo.exists(os.path.join(loc, name)):
             name = fileops.unique_name(loc, name, "n")
         path = os.path.join(loc, name)
         try:
@@ -1772,7 +1839,7 @@ class ExplorerWindow(QMainWindow):
             return
         if template:
             name = os.path.basename(template)
-        if os.path.exists(os.path.join(loc, name)):
+        if fsinfo.exists(os.path.join(loc, name)):
             name = fileops.unique_name(loc, name, "n")
         path = os.path.join(loc, name)
         try:
@@ -1802,7 +1869,7 @@ class ExplorerWindow(QMainWindow):
         m.addAction(theme.get().icon("new-folder"), "Folder", self.new_folder)
         m.addAction(theme.file_info_icon("x.txt"), "Text document", lambda: self.new_file())
         tdir = places.templates_dir()
-        if os.path.isdir(tdir):
+        if fsinfo.isdir(tdir):
             tpls = sorted(f for f in os.listdir(tdir) if not f.startswith("."))
             if tpls:
                 m.addSeparator()
@@ -1826,10 +1893,10 @@ class ExplorerWindow(QMainWindow):
                                 "Trash?") != QMessageBox.Yes:
             return
         base = os.path.dirname(TRASH)
-        items = [os.path.join(TRASH, f) for f in os.listdir(TRASH)] if os.path.isdir(TRASH) else []
+        items = [os.path.join(TRASH, f) for f in os.listdir(TRASH)] if fsinfo.isdir(TRASH) else []
         info = os.path.join(base, "info")
         self.run_op("delete", items)
-        if os.path.isdir(info):
+        if fsinfo.isdir(info):
             for f in os.listdir(info):
                 try:
                     os.unlink(os.path.join(info, f))
@@ -1895,10 +1962,10 @@ class ExplorerWindow(QMainWindow):
         f = open_a.font()
         f.setBold(True)
         open_a.setFont(f)
-        if one and os.path.isdir(one):
+        if one and fsinfo.isdir(one):
             m.addAction("Open in new tab", lambda: self.new_tab(one))
             m.addAction("Open in new window", lambda: self.ctl.open_explorer(one))
-        if one and os.path.isfile(one):
+        if one and fsinfo.isfile(one):
             ow = m.addMenu("Open with")
             mt = QMimeDatabase().mimeTypeForFile(one)
             for app in openwith.apps_for([mt.name()] + mt.allAncestors())[:12]:
@@ -1915,11 +1982,11 @@ class ExplorerWindow(QMainWindow):
         m.addSeparator()
         m.addAction(t.icon("cut"), "Cut", lambda: self.copy_selection(cut=True))
         m.addAction(t.icon("copy"), "Copy", lambda: self.copy_selection())
-        if one and os.path.isdir(one):
+        if one and fsinfo.isdir(one):
             m.addAction(t.icon("paste"), "Paste into folder", lambda: self._paste_into(one))
         m.addSeparator()
         m.addAction("Copy as path", self.copy_path)
-        if one and os.path.isdir(one):
+        if one and fsinfo.isdir(one):
             if one in self.nav.pinned:
                 m.addAction(t.icon("pin"), "Unpin from Quick access", lambda: self.unpin(one))
             else:
@@ -1938,7 +2005,7 @@ class ExplorerWindow(QMainWindow):
 
     def _index_menu(self, m, path):
         """Add 'Index for fast search' (or its management) for a folder or mount."""
-        if not path or not os.path.isdir(path):
+        if not path or not fsinfo.isdir(path):
             return
         idx = getattr(self.ctl, "index", None)
         if idx is None:
@@ -2084,7 +2151,7 @@ class ExplorerWindow(QMainWindow):
                         st = os.lstat(p)
                     except OSError:
                         continue
-                    batch.append((p, os.path.isdir(p), st.st_mtime, st.st_size))
+                    batch.append((p, stat.S_ISDIR(st.st_mode), st.st_mtime, st.st_size))
                     count += 1
             if batch and (time.monotonic() - last > 0.3 or len(batch) > 200):
                 self.search_relay.batch.emit(gen, batch)
@@ -2135,7 +2202,7 @@ class ExplorerWindow(QMainWindow):
 
     def _open_result(self, idx):
         path = self.results_model.item(idx.row(), 0).data(Qt.UserRole)
-        if os.path.isdir(path):
+        if fsinfo.isdir(path):
             self.go(path)
         else:
             self.open_file(path)
@@ -2146,7 +2213,7 @@ class ExplorerWindow(QMainWindow):
             return
         m = QMenu(self)
         m.addAction(theme.get().icon("open"), "Open", lambda: [
-            self.go(p) if os.path.isdir(p) else self.open_file(p) for p in paths[:20]])
+            self.go(p) if fsinfo.isdir(p) else self.open_file(p) for p in paths[:20]])
         m.addAction(theme.get().icon("folder"), "Open file location", lambda: (
             self.go(os.path.dirname(paths[0])), self.select_paths([paths[0]])))
         m.addSeparator()
@@ -2256,7 +2323,7 @@ def recent_files(limit=20):
             ts = time.mktime(time.strptime(stamp[:19], "%Y-%m-%dT%H:%M:%S"))
         except ValueError:
             ts = 0
-        if os.path.isfile(p):
+        if fsinfo.isfile(p):
             items.append((p, ts))
     items.sort(key=lambda x: -x[1])
     seen, out = set(), []

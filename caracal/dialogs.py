@@ -4,7 +4,7 @@
 
 import os
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
@@ -113,6 +113,16 @@ class DriveDialog(QDialog):
         self.hint = QLabel()
         self.hint.setWordWrap(True)
         self.hint.setTextFormat(Qt.PlainText)
+        # "this server also shares it over NFS" tip, checked in the background
+        self.fast_hint = QLabel()
+        self.fast_hint.setWordWrap(True)
+        self.fast_hint.setTextFormat(Qt.RichText)
+        self.fast_hint.hide()
+        self.fast_hint.linkActivated.connect(self._use_nfs)
+        self._fast_timer = QTimer(self)
+        self._fast_timer.setSingleShot(True)
+        self._fast_timer.setInterval(900)
+        self._fast_timer.timeout.connect(self._probe_nfs)
         self.name = QLineEdit()
         self.mount_point = QLineEdit()
         browse = QPushButton("Choose…")
@@ -133,6 +143,7 @@ class DriveDialog(QDialog):
 
         form.addRow("Folder:", addr_row)
         form.addRow("", self.hint)
+        form.addRow("", self.fast_hint)
         form.addRow("Protocol:", self.kind)
         form.addRow("Name:", self.name)
         form.addRow("Local folder:", mp_row)
@@ -262,6 +273,9 @@ class DriveDialog(QDialog):
             self.hint.setText("SMB share “%s” on %s" % (addr.share, addr.server))
         else:
             self.hint.setText("NFS export %s on %s" % (addr.share, addr.server))
+        self.fast_hint.hide()
+        if addr.valid and addr.kind == "smb":
+            self._fast_timer.start()
         if addr.username and not self.username.text():
             self.username.setText(addr.username)
         if addr.domain and not self.domain.text():
@@ -274,6 +288,38 @@ class DriveDialog(QDialog):
                 self.mount_point.setText(suggest_mount_point(
                     setting(self.settings, "mount_root"), addr, self.taken))
         self._update_visibility()
+
+    def _probe_nfs(self):
+        from caracal import fastpath
+        from caracal.background import run_async
+        addr = self._parsed()
+        if not (addr.valid and addr.kind == "smb"):
+            return
+        key = (addr.server, addr.share)
+
+        def done(res, _err):
+            now = self._parsed()
+            if (now.server, now.share) != key or now.kind != "smb" or not res:
+                return
+            if res.get("export"):
+                self._nfs_target = "%s:%s" % (addr.server, res["export"])
+                self.fast_hint.setText(
+                    "⚡ %s also shares this folder over NFS (<b>%s</b>), which is usually "
+                    "faster on Linux. <a href='nfs'>Use NFS instead</a>"
+                    % (addr.server, res["export"]))
+            else:
+                self.fast_hint.setText("⚡ %s also offers NFS, which is usually faster on Linux, "
+                                       "but no export matching “%s” was found."
+                                       % (addr.server, addr.share))
+            self.fast_hint.show()
+            self.adjustSize()
+        run_async(self, lambda: fastpath.nfs_alternative(addr.server, addr.share), done)
+
+    def _use_nfs(self, _link):
+        target = getattr(self, "_nfs_target", "")
+        if target:
+            self.kind.setCurrentIndex(self.kind.findData("nfs"))
+            self.address.setText(target)
 
     def _update_visibility(self, *_):
         is_smb = self.kind.currentData() == "smb"

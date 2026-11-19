@@ -10,6 +10,7 @@ import math
 import os
 import stat
 import threading
+import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from PySide6.QtGui import QFont, QIcon, QImage, QImageReader, QPixmap
 from PySide6.QtWidgets import QApplication
 import shiboken6
 
+from caracal import fsinfo
 from caracal.explorer import columns as cols, metadata, theme
 from caracal.explorer.columns import (COLUMNS, DATE, NAME, SIZE, TYPE, date_bucket,  # noqa: F401
                                       name_bucket, size_bucket)
@@ -63,6 +65,7 @@ class _Relay(QObject):
     loaded = Signal(int, str, list, str)
     thumb = Signal(str, QImage)
     meta = Signal(int, list)
+    partial = Signal(int, str, list, int)
 
     def __init__(self, owner):
         super().__init__()
@@ -70,6 +73,7 @@ class _Relay(QObject):
         self.loaded.connect(lambda *a: self._call("_loaded", a))
         self.thumb.connect(lambda *a: self._call("_thumb_ready", a))
         self.meta.connect(lambda *a: self._call("_meta_ready", a))
+        self.partial.connect(lambda *a: self._call("_partial", a))
 
     def _call(self, name, args):
         owner = self._owner()
@@ -79,6 +83,7 @@ class _Relay(QObject):
 
 class DirModel(QAbstractItemModel):
     directoryLoaded = Signal(str)
+    progress = Signal()          # loading count / details progress changed (status bar)
 
     def __init__(self, settings, parent=None):
         super().__init__(parent)
@@ -130,11 +135,11 @@ class DirModel(QAbstractItemModel):
         self.error = ""
         self.filters = {}
         self.beginResetModel()
-        self.entries, self.groups = [], []
+        self.entries, self.groups, self.all_entries = [], [], []
+        self._by_path = {}
         self._thumbs.clear()
         self.endResetModel()
         if path:
-            self.watcher.addPath(path)
             self.reload()
         return QModelIndex()
 
@@ -147,14 +152,26 @@ class DirModel(QAbstractItemModel):
         self._gen += 1
         gen, root = self._gen, self.root
         self.loading = True
+        self.load_started = time.monotonic()
+        self._refreshing = bool(self.all_entries)
+        self.loaded_count = 0
+        self.progress.emit()
         threading.Thread(target=self._scan, args=(gen, root), daemon=True).start()
 
     def _scan(self, gen, root):
         out = []
         err = ""
+        last, sent = time.monotonic(), 0
         try:
             with os.scandir(root) as it:
                 for e in it:
+                    if gen != self._gen:
+                        return              # navigated away: stop reading the share
+                    now = time.monotonic()
+                    if now - last > 0.25:
+                        # show what we have so far (big or slow folders fill in as they load)
+                        self._relay.partial.emit(gen, root, out[sent:], len(out))
+                        last, sent = now, len(out)
                     try:
                         st = e.stat(follow_symlinks=True)
                     except OSError:
@@ -179,10 +196,27 @@ class DirModel(QAbstractItemModel):
             err = "This folder can't be opened: %s" % (exc.strerror or exc)
         self._relay.loaded.emit(gen, root, out, err)
 
+    def _partial(self, gen, root, chunk, count):
+        if gen != self._gen or root != self.root:
+            return
+        self.loaded_count = count
+        if chunk and not getattr(self, "_refreshing", False):
+            for e in chunk:
+                e.type_name = self.type_name(e)
+                e.meta = self._meta_cache.get((e.path, e.mtime))
+                self._by_path[e.path] = e
+            self.all_entries = self.all_entries + chunk
+            self._rebuild()
+        self.progress.emit()
+
     def _loaded(self, gen, root, entries, err=""):
         if gen != self._gen or root != self.root:
             return
         self.loading = False
+        self.loaded_count = len(entries)
+        if not err and root not in self.watcher.directories() and \
+                not fsinfo.is_unresponsive(root):
+            self.watcher.addPath(root)
         self.error = err
         for e in entries:
             e.type_name = self.type_name(e)
@@ -191,6 +225,7 @@ class DirModel(QAbstractItemModel):
         self._by_path = {e.path: e for e in entries}
         self._rebuild()
         self._request_meta()
+        self.progress.emit()
         self.directoryLoaded.emit(root)
 
     def group_col(self):
@@ -301,6 +336,7 @@ class DirModel(QAbstractItemModel):
             e = self._by_path.get(path)
             if e is not None and e.mtime == mtime:
                 e.meta = info
+        self.progress.emit()
         if gen != self._gen:
             return
         meta_order = {c for c in (self.sort_col, self.group_col(), *self.filters)
@@ -309,6 +345,9 @@ class DirModel(QAbstractItemModel):
             self._meta_timer.start(400)
         else:
             self._emit_all_changed()
+
+    def details_left(self):
+        return len(self._meta_pending)
 
     def _emit_all_changed(self):
         last = len(COLUMNS) - 1
@@ -461,15 +500,13 @@ class DirModel(QAbstractItemModel):
                 return None
             return cols.display(col, e, self)
         if role == Qt.DecorationRole and col == NAME:
-            info = QFileInfo(e.path)
             if self.thumb_size and not e.is_dir and \
                     e.name.rsplit(".", 1)[-1].lower() in THUMB_EXTS:
                 icon = self._thumbs.get(e.path)
                 if icon is not None:
                     return icon
                 self._request_thumb(e)
-            return theme.get().icon("folder") if e.is_dir and theme.get()._file("folder") \
-                else theme.get().file_icon(info)
+            return theme.get().name_icon(e.name, e.is_dir)
         if role == Qt.TextAlignmentRole and cols.right_aligned(col):
             return int(Qt.AlignRight | Qt.AlignVCenter)
         if role == Qt.ForegroundRole and col != NAME:

@@ -2,6 +2,15 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [1.4] - 2026-11-21
+
+- **No more lock-ups on network shares.** Explorer no longer waits on a slow or unreachable SMB/NFS/SFTP server: folder listings, the left pane, file icons, the status bar, menus and theme changes all stay responsive. A share that stops answering is shown as not responding instead of freezing the window, and is retried after 30 seconds.
+- **Loading bar** at the bottom left while a folder loads, with a running count ("Loading… 1,200 items so far"). Big or slow folders fill in as they load. If a server doesn't answer, the status bar says so ("Waiting for the server (nas) to respond… 12 s"). The bar also runs while picture/music/document details are being read.
+- **Connection dots** on network drives in the left pane: green when connected, amber while connecting, red when not mounted (including automount drives that haven't been opened yet) or not responding. Hover for details.
+- **Faster connection tip:** if an SMB drive's server also shares the same folder over NFS (common on TrueNAS, Synology, Unraid, QNAP), the drive's tooltip says so and its right-click menu offers to map it over NFS, which is usually faster on Linux. The Map network drive dialog shows the same tip while you type an SMB address.
+- **Quick Access Toolbar buttons** (New folder, Properties…) now grey out where they can't work, such as on This PC, instead of silently doing nothing, and show hover/pressed feedback.
+- The left pane loads subfolders in the background and shows "Loading…" / "Not responding" instead of hanging.
+
 ## [1.3] - 2026-11-21
 
 - **Updates take effect right away.** Caracal keeps running in the background (explorer mode, search, "Show in folder"), so after installing a new RPM/DEB the old version could keep answering and nothing seemed to change. Now the package tells running copies to restart, and Caracal reopens the same Explorer windows and tabs. If you're copying or moving files, it waits until they finish. Launching a newer Caracal while an older one is running also hands over to the new one. (Upgrading *to* 1.3 closes the old background copy instead; just open Caracal again.)

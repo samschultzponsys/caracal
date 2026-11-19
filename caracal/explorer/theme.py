@@ -152,6 +152,7 @@ class Theme:
         self.apply_icon_theme()
         self._icons = {}
         self._ext_icons = {}
+        self._name_icons = {}
         self.provider = QFileIconProvider()
         self.fonts = []
         fdir = os.path.join(self.dir, "fonts")
@@ -232,6 +233,32 @@ class Theme:
             p = self._file("ext-" + ext) if ext else None
             self._ext_icons[ext] = QIcon(p) if p else None
         return self._ext_icons[ext] or self.provider.icon(info)
+
+    def name_icon(self, name, is_dir):
+        """Icon from the file name alone (cached per extension). Unlike file_icon() this
+        never touches the disk, so painting a network folder can't stall the window."""
+        ext = "" if is_dir else (name.rsplit(".", 1)[-1].lower() if "." in name.lstrip(".") else "")
+        key = "/" if is_dir else ext
+        icon = self._name_icons.get(key)
+        if icon is not None:
+            return icon
+        if is_dir:
+            icon = self.icon("folder") if self._file("folder") else \
+                QIcon.fromTheme("folder", self.provider.icon(QFileIconProvider.Folder))
+        else:
+            p = self._file("ext-" + ext) if ext else None
+            if p:
+                icon = QIcon(p)
+            else:
+                from PySide6.QtCore import QMimeDatabase
+                mt = QMimeDatabase().mimeTypeForFile(name, QMimeDatabase.MatchExtension)
+                icon = QIcon.fromTheme(mt.iconName())
+                if icon.isNull():
+                    icon = QIcon.fromTheme(mt.genericIconName())
+                if icon.isNull():
+                    icon = self.provider.icon(QFileIconProvider.File)
+        self._name_icons[key] = icon
+        return icon
 
     # -- colors / stylesheet ------------------------------------------------------
 
@@ -343,6 +370,11 @@ class Theme:
         #RibbonTabs {{ background: {c['chrome']}; }}
         #RibbonTabs QToolButton {{ border: none; padding: 2px 10px; color: {c['text']}; }}
         #RibbonTabs QToolButton:hover {{ background: {c['hover']}; }}
+        #RibbonTabs #QAT QToolButton {{ padding: 2px 4px; border: 1px solid transparent; }}
+        #RibbonTabs #QAT QToolButton:hover {{ background: {c['hover']}; border: 1px solid {c['border']}; }}
+        #RibbonTabs #QAT QToolButton:pressed {{ background: {c['border']}; }}
+        #BusyBar {{ border: 1px solid {c['border']}; background: {c['content']}; border-radius: 0; }}
+        #BusyBar::chunk {{ background: #06B025; width: 18px; }}
         #RibbonTabs QToolButton:checked {{ background: {c['content']}; border: 1px solid {c['border']};
             border-bottom: none; }}
         QToolButton#RibbonFile {{ background-color: {accent}; color: #FFFFFF; padding: 2px 12px;

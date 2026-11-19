@@ -2,6 +2,39 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v1.4: responsiveness on network shares
+
+Sam: QAT buttons "static"; red/green dots for mounts; detect faster NFS vs SMB; UI slow with
+complete lock-ups on network shares; wants a loading bar; switching theme/colors to Adwaita
+went "not responding".
+- Root cause of the freezes: GUI-thread filesystem calls on network paths — every painted
+  file icon (QFileInfo.isDir + QFileIconProvider), status bar (statvfs + getsize of the
+  selection on every selection change), realpath() in folder prefs/in_trash, ismount, and the
+  nav pane's synchronous expand (scandir of the folder + every subfolder) which
+  _restore_expanded re-ran on each nav rebuild — so a theme change with an expanded share
+  froze. (Theme switching itself measured ~0.2 s.)
+- caracal/fsinfo.py: mount table from /proc/self/mountinfo (2 s cache; autofs counts as
+  remote, is_mounted ignores autofs traps); call(fn, path) runs on remote paths in a daemon
+  thread with a timeout and marks the mount unresponsive for 30 s (DEAD_FOR) so stuck threads
+  don't pile up. Don't call mount_for() while holding _lock (deadlock found in testing).
+  window.py now uses fsinfo.isdir/isfile/exists/realpath/is_mounted everywhere on the GUI
+  thread; go() probes with timeout 0.3 and mark_dead=False and lets the scan report errors.
+- Model: icons via Theme.name_icon(name, is_dir) (mime by extension, cached); _scan emits
+  partial batches every 0.25 s (shown on first load; refreshes keep the old list until done),
+  stops if navigated away; watcher added only after a successful load; progress signal →
+  status. Window: busy QProgressBar (#BusyBar) in the status bar, free space via run_async
+  cached 15 s, selection size from listing.
+- NavPane: async _expand via run_async + QPersistentModelIndex; remote subfolders aren't
+  peeked into; STATUS role + PinDelegate dot (up/busy/down); tooltip states.
+- fastpath.py: port 2049 check + `showmount -e`, match_export() by last path component;
+  MainWindow._probe_faster() per SMB drive once per session → self.faster → nav tooltip and
+  "Faster connection available: map … over NFS…" (ctl.add_drive prefilled). DriveDialog shows
+  the tip with a "Use NFS instead" link (900 ms debounce).
+- QAT: Ribbon.update_qat_state() from _update_status; disabled on pseudo pages (This PC,
+  Quick access home), where they used to do nothing.
+- Test harness: scratchpad xp/hang.py fakes a hung NFS mount (os.stat/scandir/statvfs sleep
+  20 s under ~/nas) and measures the worst event-loop gap: now <= 0.3 s for every action.
+
 ## 2026-11-21 — v1.3: upgrades restart running copies
 
 Sam: upgrading the RPM (even uninstall + reinstall) didn't change anything / no version
