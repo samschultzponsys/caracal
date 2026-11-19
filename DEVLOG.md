@@ -4,6 +4,10 @@ Working notes for the next session. Newest first.
 
 ## 2026-11-20 — v0.8: closer to Windows 10 Explorer; package renamed to caracal
 
+- Repo renamed by Sam to samschultzponsys/caracal; REPO constant, links, metainfo and
+  packaging URLs updated (the old URL redirects, so older installs still find updates).
+  This cloud session's git remote still uses the old URL (GitHub redirects pushes).
+
 Sam: "spacing and general look are not quite 1 to 1" (reference: his Win10 dark Explorer
 screenshot). Changes: theme defaults font_size 9 / row_height 20 / nav_width 180; nav icons
 16 px; ribbon strip and address bar slimmer (22-24 px, square); breadcrumb starts at the

@@ -4,7 +4,7 @@
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
   <vendor>Spazcat Enterprises</vendor>
-  <vendor_url>https://github.com/samschultzponsys/catamount</vendor_url>
+  <vendor_url>https://github.com/samschultzponsys/caracal</vendor_url>
   <icon_name>com.spazcat.Caracal</icon_name>
   <action id="com.spazcat.Caracal.manage">
     <description>Manage network drives</description>

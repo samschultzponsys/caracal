@@ -49,7 +49,7 @@ read-only.
 ## Install
 
 Download the latest package from
-[Releases](https://github.com/samschultzponsys/catamount/releases).
+[Releases](https://github.com/samschultzponsys/caracal/releases).
 
 Fedora:
 
@@ -262,7 +262,7 @@ the app first if you want them gone.
 
 ## Updates
 
-Caracal checks [GitHub Releases](https://github.com/samschultzponsys/catamount/releases)
+Caracal checks [GitHub Releases](https://github.com/samschultzponsys/caracal/releases)
 at most once a day. You can turn this off in Preferences, and **Help → Check
 for updates** checks on demand. Results are cached in
 `~/.cache/caracal/update.json`. When an update exists:

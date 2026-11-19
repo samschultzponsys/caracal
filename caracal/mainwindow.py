@@ -1077,5 +1077,5 @@ class MainWindow(QMainWindow):
             self, "About %s" % APP_NAME,
             "<b>%s %s</b><br>Map SMB and NFS network drives as persistent systemd mounts."
             "<br><br>Copyright 2026 Spazcat Enterprises<br>Licensed under the Apache License 2.0"
-            "<br><a href='https://github.com/samschultzponsys/catamount'>"
-            "github.com/samschultzponsys/catamount</a>" % (APP_NAME, __version__))
+            "<br><a href='https://github.com/samschultzponsys/caracal'>"
+            "github.com/samschultzponsys/caracal</a>" % (APP_NAME, __version__))

@@ -21,8 +21,8 @@
   </description>
   <icon type="stock">com.spazcat.Caracal</icon>
   <launchable type="desktop-id">com.spazcat.Caracal.desktop</launchable>
-  <url type="homepage">https://github.com/samschultzponsys/catamount</url>
-  <url type="bugtracker">https://github.com/samschultzponsys/catamount/issues</url>
+  <url type="homepage">https://github.com/samschultzponsys/caracal</url>
+  <url type="bugtracker">https://github.com/samschultzponsys/caracal/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
     <release version="0.8" date="2026-11-20"/>

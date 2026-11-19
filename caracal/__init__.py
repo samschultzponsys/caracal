@@ -5,4 +5,4 @@
 __version__ = "0.8"
 APP_ID = "com.spazcat.Caracal"
 APP_NAME = "Caracal"
-REPO = "samschultzponsys/catamount"
+REPO = "samschultzponsys/caracal"

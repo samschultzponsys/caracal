@@ -71,7 +71,7 @@ These are my defaults. Apply each one only where it fits the project type (e.g. 
 - When changing a system prompt, give the whole prompt, not just the changed lines.
 
 ## Project Notes
-- What it is: Caracal (renamed from CataMount in 0.7) — native Linux desktop app: Windows Explorer-style file manager plus "Map network drive" for SMB/NFS (systemd .mount/.automount units; never edits /etc/fstab; read-only view of existing fstab network mounts), per-user SFTP/FTP/WebDAV mounts, and instant search. The GitHub repo is still named "catamount" (Sam will rename it later; GitHub redirects).
+- What it is: Caracal (renamed from CataMount in 0.7) — native Linux desktop app: Windows Explorer-style file manager plus "Map network drive" for SMB/NFS (systemd .mount/.automount units; never edits /etc/fstab; read-only view of existing fstab network mounts), per-user SFTP/FTP/WebDAV mounts, and instant search. The GitHub repo was renamed to samschultzponsys/caracal on 2026-11-20 (the old "catamount" URL redirects).
 - Stack: Python 3 + PySide6 (Qt 6) GUI (package `caracal/`); stdlib-only privileged helper (/usr/libexec/caracal/caracal-helper) run via pkexec/polkit (action com.spazcat.Caracal.manage). App ID com.spazcat.Caracal. Command `caracal` (`catamount` symlink kept). Packaged as RPM (primary) and DEB as "caracal" (0.8+; replaces the old "catamount" package via Obsoletes / Conflicts+Replaces).
 - Host: N/A — desktop app installed on Fedora/Debian workstations, not a server service. Don't ask.
 - Bind storage path: N/A — no Docker. Don't ask.

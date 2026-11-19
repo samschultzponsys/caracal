@@ -3,7 +3,7 @@ Version:        0.8
 Release:        1
 Summary:        Map SMB and NFS network drives as persistent systemd mounts
 License:        Apache-2.0
-URL:            https://github.com/samschultzponsys/catamount
+URL:            https://github.com/samschultzponsys/caracal
 Source0:        %{name}-%{version}.tar.gz
 BuildArch:      noarch
 # Renamed from CataMount (package "catamount", up to 0.7): replace it on upgrade.
