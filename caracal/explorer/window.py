@@ -345,8 +345,13 @@ class ExplorerWindow(QMainWindow):
         # Status bar
         sb = self.statusBar()
         sb.setObjectName("StatusBar")
+        self.version_label = QLabel()
+        self.version_label.setTextFormat(Qt.RichText)
+        self.version_label.linkActivated.connect(lambda _l: self.ctl.show_changelog())
+        sb.addWidget(self.version_label)
         self.status = QLabel()
         sb.addWidget(self.status, 1)
+        self.refresh_version()
         self.sb_details = self._tbtn("details-view", "Details (Ctrl+Shift+6)",
                                      lambda: self.set_view("details"))
         self.sb_icons = self._tbtn("icons-view", "Large icons (Ctrl+Shift+2)",
@@ -574,6 +579,11 @@ class ExplorerWindow(QMainWindow):
             self.select_paths(pending)
         self._update_status()
         self._selection_changed()
+
+    def refresh_version(self):
+        html, tip = self.ctl.version_html()
+        self.version_label.setText(html + "&nbsp;&nbsp;|")
+        self.version_label.setToolTip(tip)
 
     def _rebuild_nav(self):
         """Rebuild the navigation tree and re-highlight the folder we're in."""
@@ -1009,6 +1019,8 @@ class ExplorerWindow(QMainWindow):
             m.addAction(theme.get().icon("trash"), "Empty Trash", self.empty_trash)
         m.addSeparator()
         m.addAction(theme.get().icon("settings"), "Options", self.ctl.preferences)
+        m.addAction("Check for updates…", self.ctl.check_updates)
+        m.addAction("What's new (changelog)", self.ctl.show_changelog)
 
     # ======================================================================
     # tile pages

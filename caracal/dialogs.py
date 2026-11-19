@@ -667,6 +667,10 @@ class PreferencesDialog(QDialog):
         open_btn = QPushButton("Open theme folder")
         open_btn.clicked.connect(self._open_theme_folder)
         rl.addWidget(open_btn)
+        reload_btn = QPushButton("Reload theme")
+        reload_btn.setToolTip("Pick up icons and fonts you just added to the theme folder")
+        reload_btn.clicked.connect(self._reload_theme)
+        rl.addWidget(reload_btn)
         rl.addStretch(1)
         af.addRow(row)
         app.setLayout(af)
@@ -678,6 +682,19 @@ class PreferencesDialog(QDialog):
         c = QColorDialog.getColor(QColor(self.x_accent.text() or "#0067C0"), self, "Accent color")
         if c.isValid():
             self.x_accent.setText(c.name())
+
+    def _reload_theme(self):
+        from caracal.explorer import theme as xtheme
+        t = xtheme.reload()
+        current = self.x_font.currentFont()
+        self.x_font.setCurrentFont(current)   # the list now includes newly added fonts
+        parent = self.parent()
+        ctl = getattr(parent, "ctl", parent)
+        if hasattr(ctl, "apply_explorer_settings"):
+            ctl.apply_explorer_settings()
+        added = ", ".join(t.fonts) if t.fonts else "none"
+        QMessageBox.information(self, "Appearance", "Theme reloaded.\n\nFonts from the theme "
+                                "folder: %s" % added)
 
     def _open_theme_folder(self):
         from PySide6.QtCore import QUrl

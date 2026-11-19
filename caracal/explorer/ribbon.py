@@ -397,6 +397,9 @@ class Ribbon(QWidget):
         m.addAction("Change folder and search options", w.ctl.preferences)
         m.addAction("Manage network drives", w.ctl.show_window)
         m.addSeparator()
+        m.addAction("Check for updates…", w.ctl.check_updates)
+        m.addAction("What's new (changelog)", w.ctl.show_changelog)
+        m.addSeparator()
         m.addAction("Close", w.close)
 
     def _fill_dest_menu(self, m, kind):

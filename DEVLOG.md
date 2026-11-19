@@ -2,6 +2,16 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-20 — v1.0: updates reachable from Explorer
+
+Sam (in Explorer mode): "I see no update tool". The version label / Help menu lived only in
+the drives window, which Explorer mode never shows. Now: MainWindow.version_html() feeds an
+Explorer status-bar version label (refresh_version, called from _refresh_version_label);
+File/··· menus have Check for updates… and What's new; tray always offers Check for updates…;
+update dialogs parent to dialog_parent() (an Explorer window when the drives window is
+hidden); download/install progress mirrored to Explorer status. Version rolled 0.9 → 1.0 per
+the Major.Minor rule.
+
 ## 2026-11-20 — v0.9: QAT, customizable nav pane, index any folder
 
 Sam's spec (screenshot of his Win10 Explorer + notes): new folder button top-left; right-click

@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [1.0] - 2026-11-20
+
+- Updates are reachable from Explorer: the version number sits at the bottom left of the Explorer window (click it for what's new; a green dot means an update is ready), and **File → Check for updates…** / **File → What's new** are in the ribbon (in the ··· menu with the Windows 11 layout). The tray menu always has **Check for updates…**.
+- Update progress and results show in the Explorer window instead of the hidden drives window.
+- Preferences → Appearance has a **Reload theme** button to pick up icons and fonts you just dropped into the theme folder.
+
 ## [0.9] - 2026-11-20
 
 - **New folder at the top left:** a Quick Access Toolbar (Properties and New folder by default) in front of the ribbon. Use its ▾ to add Undo, Delete, Rename, Refresh or Open in terminal.

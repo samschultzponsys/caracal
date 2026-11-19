@@ -222,7 +222,8 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         if self.updates.update:
             m.addAction("Update to %s available…" % self.updates.update["version"],
-                        lambda: (self.show_window(), self.show_changelog()))
+                        self.show_changelog)
+        m.addAction("Check for updates…", self.check_updates)
         a = m.addAction("Map network drive…", lambda: (self.show_window(), self.add_drive()))
         a.setEnabled(not self.helper.busy)
         m.addSeparator()
@@ -994,7 +995,7 @@ class MainWindow(QMainWindow):
         upd = self.updates.update
         can_install = bool(upd and self.updates.kind
                            and updater.pick_assets(upd, self.updates.kind))
-        dlg = ChangelogDialog(self, update=upd, can_install=can_install,
+        dlg = ChangelogDialog(self.dialog_parent(), update=upd, can_install=can_install,
                               error=self.updates.last_error)
         result = dlg.exec()
         if result == ChangelogDialog.INSTALL:
@@ -1008,17 +1009,33 @@ class MainWindow(QMainWindow):
         if setting(self.settings, "auto_check_updates"):
             self.updates.check()
 
-    def _refresh_version_label(self):
+    def version_html(self):
+        """Version link (to the changelog) with a dot when an update is available."""
         upd = self.updates.update
         if upd:
-            self.version_label.setText(
-                '<a href="changelog" style="text-decoration:none">v%s '
-                '<span style="color:#16A34A">●</span></a>' % __version__)
-            self.version_label.setToolTip("Update available: %s — click for details"
-                                          % upd["version"])
-        else:
-            self.version_label.setText('<a href="changelog">v%s</a>' % __version__)
-            self.version_label.setToolTip("Show changelog")
+            return ('<a href="changelog" style="text-decoration:none">v%s '
+                    '<span style="color:#16A34A">●</span></a>' % __version__,
+                    "Update available: %s — click for details" % upd["version"])
+        return '<a href="changelog">v%s</a>' % __version__, "What's new (changelog)"
+
+    def dialog_parent(self):
+        """Parent for dialogs: an Explorer window when the drives window is hidden."""
+        if not self.isVisible() and self.explorers:
+            return self.explorers[-1]
+        return self
+
+    def check_updates(self):
+        self.updates.check(manual=True)
+
+    def _refresh_version_label(self):
+        html, tip = self.version_html()
+        self.version_label.setText(html)
+        self.version_label.setToolTip(tip)
+        for w in list(self.explorers):
+            try:
+                w.refresh_version()
+            except RuntimeError:
+                pass
 
     def _update_checked(self, manual):
         self._refresh_version_label()
@@ -1029,18 +1046,21 @@ class MainWindow(QMainWindow):
                 self.settings.setValue("notified_version", upd["version"])
                 self.notify("Caracal %s is available." % upd["version"], timeout=8000)
             return
+        parent = self.dialog_parent()
         if upd:
             self.show_changelog()
         elif self.updates.last_error:
-            QMessageBox.warning(self, APP_NAME, self.updates.last_error)
+            QMessageBox.warning(parent, APP_NAME, self.updates.last_error)
         else:
-            QMessageBox.information(self, APP_NAME, "Caracal %s is the latest version."
+            QMessageBox.information(parent, APP_NAME, "Caracal %s is the latest version."
                                     % __version__)
 
     def install_update(self):
         if self.helper.busy or self.updates.busy:
             return
         self.statusBar().showMessage("Downloading update…")
+        for w in list(self.explorers):
+            w.status.setText("Downloading the update…")
         self.act_check_updates.setEnabled(False)
         self.updates.download()
 
@@ -1048,16 +1068,19 @@ class MainWindow(QMainWindow):
         self.act_check_updates.setEnabled(True)
         if not ok:
             self.statusBar().showMessage("Update download failed.", 5000)
-            QMessageBox.warning(self, APP_NAME, path_or_error)
+            QMessageBox.warning(self.dialog_parent(), APP_NAME, path_or_error)
             return
         version = self.updates.update["version"]
+        for w in list(self.explorers):
+            w.status.setText("Installing Caracal %s…" % version)
         self._after_helper = lambda _reply: self._update_installed(version)
         self._run("install-update", {"path": path_or_error, "sha256": sha256},
                   "Installing Caracal %s" % version)
 
     def _update_installed(self, version):
         answer = QMessageBox.question(
-            self, APP_NAME, "Caracal %s is installed. Restart Caracal now to use it?" % version)
+            self.dialog_parent(), APP_NAME,
+            "Caracal %s is installed. Restart Caracal now to use it?" % version)
         if answer == QMessageBox.Yes:
             self.restart()
 
