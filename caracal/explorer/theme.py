@@ -37,6 +37,9 @@ ICON_SLOTS = {
     "drive-network": ("Connected network drive", ["folder-remote", "network-server"]),
     "drive-network-offline": ("Disconnected network drive", ["folder-remote-symbolic", "network-offline"]),
     "folder": ("Folder", ["folder"]),
+    "app": ("Caracal's own icon (taskbar, menus) when App icon is \"From my theme\"",
+            ["system-file-manager", "file-manager", "explorer", "file-explorer",
+             "org.kde.dolphin", "folder"]),
     "file": ("Generic file", ["text-x-generic", "unknown"]),
     "back": ("Back button", ["go-previous"]),
     "forward": ("Forward button", ["go-next"]),
@@ -535,6 +538,10 @@ def _icon_theme_name(index_path):
     return cp.get("Icon Theme", "Name", fallback=os.path.basename(os.path.dirname(index_path)))
 
 
+APP_ICON_ALIASES = {"explorer", "file-explorer", "fileexplorer", "file_explorer",
+                    "windows-explorer", "system-file-manager"}
+
+
 def _installed_icon_themes():
     out = {}
     for base in QIcon.themeSearchPaths() + [imported_icon_dir()]:
@@ -698,6 +705,11 @@ def import_theme(source):
                 elif low.endswith((".ttf", ".otf", ".ttc")):
                     shutil.copy2(p, os.path.join(d, "fonts", f))
                     summary["fonts"] += 1
+                elif low.endswith((".svg", ".png", ".ico")) and \
+                        os.path.splitext(low)[0] in APP_ICON_ALIASES:
+                    # a Windows pack's File Explorer icon becomes Caracal's "app" slot
+                    shutil.copy2(p, os.path.join(d, "icons", "app" + os.path.splitext(low)[1]))
+                    summary["icons"] += 1
                 elif low.endswith((".svg", ".png", ".ico")) and \
                         (os.path.splitext(low)[0] in ICON_SLOTS or low.startswith("ext-")):
                     shutil.copy2(p, os.path.join(d, "icons", low))

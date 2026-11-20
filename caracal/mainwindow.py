@@ -748,7 +748,13 @@ class MainWindow(QMainWindow):
     def apply_explorer_settings(self):
         from caracal.explorer import theme as xtheme
         xtheme.reload()
+        try:
+            from caracal.icons import apply_app_icon
+            apply_app_icon(self.settings)
+        except Exception:
+            pass
         for w in list(self.explorers):
+            w.update_window_icon()
             w.apply_appearance()
             w.apply_layout()
             w._apply_hidden()

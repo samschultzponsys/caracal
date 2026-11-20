@@ -69,7 +69,7 @@ class ExplorerWindow(QMainWindow):
         self.settings = ctl.settings
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setObjectName("ExplorerRoot")
-        self.setWindowIcon(theme.get().icon("folder"))
+        self.update_window_icon()
         self.tabs_state = []
         self.undo_stack = []
         self.search_gen = 0
@@ -616,6 +616,15 @@ class ExplorerWindow(QMainWindow):
         loc = self.current_location() if hasattr(self, "tabs_state") else None
         if loc and not (explorer_setting(self.settings, "nav_follow", True) and self.nav.reveal(loc)):
             self.nav.select_location(loc)
+
+    def update_window_icon(self):
+        """Explorer windows show a folder like Windows does, unless an app icon was chosen
+        (Preferences → Appearance → App icon); then they use that."""
+        from caracal import icons
+        if icons.app_icon_choice(self.settings) == "caracal":
+            self.setWindowIcon(theme.get().icon("folder"))
+        else:
+            self.setWindowIcon(icons.app_icon(self.settings))
 
     def apply_appearance(self):
         t = theme.get()

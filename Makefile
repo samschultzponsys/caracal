@@ -34,5 +34,7 @@ install:
 	install -D -m 0644 data/search/caracal_search_nautilus.py $(DATADIR)/caja-python/extensions/caracal_search.py
 	install -d $(DATADIR)/caracal/icons/tray
 	install -m 0644 data/icons/tray/*.svg $(DATADIR)/caracal/icons/tray/
+	install -d $(DATADIR)/caracal/icons/app
+	install -m 0644 data/icons/app/*.svg $(DATADIR)/caracal/icons/app/
 
 .PHONY: all test install

@@ -2,6 +2,23 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v1.7: app icon choice
+
+Sam: option to reskin the app icon to look more like a file folder, or use the imported
+Windows theme pack.
+- data/icons/app/folder.svg, folder-cat.svg (original designs; installed to
+  /usr/share/caracal/icons/app/ — Makefile updated).
+- icons.py: APP_ICON_CHOICES; settings app_icon (caracal|folder|folder-cat|theme|custom) +
+  app_icon_file; icon_for_choice(); app_icon() falls back to default_app_icon(); tray keeps the
+  default. apply_app_icon(): QApplication window icon + per-user overrides of both desktop
+  entries in ~/.local/share/applications with Icon=<rendered 256 px PNG named by hash> and
+  X-Caracal-Icon-Override=true (never touches an entry without the mark); regenerated at each
+  start from the system entry; removed for "caracal". Then update-desktop-database /
+  kbuildsycoca6. Wayland taskbars only use the desktop entry's Icon.
+- theme: "app" slot (system-file-manager, file-manager, explorer, …); import maps
+  APP_ICON_ALIASES (explorer.ico, file-explorer.*) to icons/app.<ext>.
+- Explorer windows: folder icon by default (as before), the app icon when one was chosen.
+
 ## 2026-11-21 — v1.6: replace on switch, /mnt/<share> defaults
 
 Sam: "when switching to a faster method remove the old, also default the mount path to

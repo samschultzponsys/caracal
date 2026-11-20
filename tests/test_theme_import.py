@@ -87,3 +87,20 @@ class ImportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AppIconOverrideTests(unittest.TestCase):
+    def test_override_desktop_text(self):
+        from caracal import icons
+        src = ("[Desktop Entry]\nName=Caracal\nIcon=com.spazcat.Caracal\nExec=caracal\n\n"
+               "[Desktop Action Search]\nName=Search\nIcon=system-search\n")
+        out = icons.override_desktop_text(src, "/x/icon.png")
+        self.assertIn("Icon=/x/icon.png", out)
+        self.assertIn("Icon=system-search", out)
+        self.assertEqual(out.count(icons.OVERRIDE_MARK), 1)
+        main = out.split("[Desktop Action")[0]
+        self.assertIn(icons.OVERRIDE_MARK, main)
+        # re-applying doesn't duplicate the mark
+        again = icons.override_desktop_text(out, "/x/other.png")
+        self.assertEqual(again.count(icons.OVERRIDE_MARK), 1)
+        self.assertIn("Icon=/x/other.png", again)

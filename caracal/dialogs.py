@@ -4,7 +4,8 @@
 
 import os
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
@@ -710,7 +711,22 @@ class PreferencesDialog(QDialog):
         al.setContentsMargins(0, 0, 0, 0)
         al.addWidget(self.x_accent, 1)
         al.addWidget(pick)
+        from caracal import icons as app_icons
+        self.x_app_icon = QComboBox()
+        self.x_app_icon.setIconSize(QSize(24, 24))
+        self._app_icon_file = str(self.settings.value("app_icon_file", "") or "")
+        for key, label in app_icons.APP_ICON_CHOICES:
+            icon = app_icons.default_app_icon() if key == "caracal" else \
+                app_icons.icon_for_choice(key, self._app_icon_file)
+            self.x_app_icon.addItem(icon or QIcon(), label, key)
+        self.x_app_icon.setCurrentIndex(max(0, self.x_app_icon.findData(
+            app_icons.app_icon_choice(self.settings))))
+        self.x_app_icon.setToolTip("Caracal's icon in the taskbar, app menu and window titles. "
+                                   "\"From my theme\" uses the File Explorer icon from a theme "
+                                   "pack you imported (or your icon theme's file manager icon).")
+        self.x_app_icon.activated.connect(self._app_icon_picked)
         af.addRow("Theme:", self.x_theme)
+        af.addRow("App icon:", self.x_app_icon)
         af.addRow("Icon theme:", self.x_icons)
         af.addRow(self.x_font_default)
         af.addRow("Font:", self.x_font)
@@ -742,6 +758,19 @@ class PreferencesDialog(QDialog):
         af.addRow(row)
         app.setLayout(af)
         tabs.addTab(app, "Appearance")
+
+    def _app_icon_picked(self, _i):
+        if self.x_app_icon.currentData() != "custom":
+            return
+        p, _f = QFileDialog.getOpenFileName(
+            self, "Choose an icon", os.path.dirname(self._app_icon_file) or os.path.expanduser("~"),
+            "Images (*.svg *.png *.ico *.xpm *.jpg)")
+        if p:
+            from PySide6.QtGui import QIcon as _QIcon
+            self._app_icon_file = p
+            self.x_app_icon.setItemIcon(self.x_app_icon.currentIndex(), _QIcon(p))
+        elif not self._app_icon_file:
+            self.x_app_icon.setCurrentIndex(0)
 
     def _pick_accent(self):
         from PySide6.QtGui import QColor
@@ -850,6 +879,8 @@ class PreferencesDialog(QDialog):
                 data = _json.load(fh)
         except (OSError, ValueError):
             data = {}
+        self.settings.setValue("app_icon", self.x_app_icon.currentData())
+        self.settings.setValue("app_icon_file", self._app_icon_file)
         data.update({"mode": self.x_theme.currentData(),
                      "font_family": "" if self.x_font_default.isChecked() else self.x_font.currentFont().family(),
                      "font_size": self.x_font_size.value(), "row_height": self.x_row.value(),

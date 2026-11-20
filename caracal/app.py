@@ -124,6 +124,11 @@ def main(argv=None):
     from caracal.icons import app_icon
     from caracal.mainwindow import MainWindow
     app.setWindowIcon(app_icon())
+    try:
+        from caracal.icons import apply_app_icon
+        apply_app_icon()          # chosen app icon + keep desktop-entry overrides current
+    except Exception:             # an icon must never stop Caracal from starting
+        pass
     from caracal.dialogs import setting
     from PySide6.QtCore import QSettings, QTimer
     explorer_start = restore is None and (explore is not None or (

@@ -2,6 +2,11 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [1.7] - 2026-11-21
+
+- **Choose Caracal's app icon** (Preferences → Appearance → *App icon*): the cat-eared network folder (default), a plain **Folder**, a **Folder with cat ears**, **From my theme** (the File Explorer icon from a theme pack you imported, or your icon theme's file manager icon), or a **Custom image**. It changes the taskbar, app menu and window icons. Caracal does this with per-user copies of its menu entries, so it works on KDE Wayland; choosing the default again removes them.
+- Importing a theme pack now picks up its File Explorer icon (`explorer.ico`, `file-explorer.png`, …) as the "app" icon. You can also drop `app.png`/`.svg`/`.ico` into the theme folder's icons/.
+
 ## [1.6] - 2026-11-21
 
 - **Switching to the faster connection replaces the old drive.** Right-click an SMB drive → *Faster connection available: switch to NFS…* opens the dialog with the same name, local folder and options; OK removes the SMB drive and maps the NFS export in its place, so paths and bookmarks keep working.
