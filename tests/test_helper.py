@@ -361,3 +361,129 @@ class UserFolderTests(unittest.TestCase):
                 helper.cmd_user_folder({"path": name})          # again: fine, already theirs
         finally:
             shutil.rmtree(name, ignore_errors=True)
+
+
+class WatchdogTests(unittest.TestCase):
+    ID = "11111111-1111-4111-8111-111111111111"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.mp = os.path.join(self.tmp, "mnt", "media")
+        spec = {"id": self.ID, "name": "Media", "type": "smb", "server": "nas", "share": "media",
+                "mount_point": self.mp, "automount": False}
+        self.unit = "mnt-media.mount"
+        self.calls = []
+        self.mounted = set()
+        self.up = {"reachable": True, "start_ok": True, "healthy": True}
+        self.unit_states = {self.unit: ("inactive", "enabled")}
+        p = [mock.patch.object(helper, "STATE_DIR", self.tmp),
+             mock.patch.object(helper, "DESIRED_FILE", os.path.join(self.tmp, "desired.json")),
+             mock.patch.object(helper, "WATCH_STATE_FILE", os.path.join(self.tmp, "watch.json")),
+             mock.patch.object(helper, "WATCH_CONF_FILE", os.path.join(self.tmp, "conf.json")),
+             mock.patch.object(helper, "drive_specs", lambda: {self.ID: (spec, [self.unit])}),
+             mock.patch.object(helper, "mounted_points", lambda: set(self.mounted)),
+             mock.patch.object(helper, "reachable", lambda s, timeout=3: self.up["reachable"]),
+             mock.patch.object(helper, "healthy", lambda mp, timeout=10: self.up["healthy"]),
+             mock.patch.object(helper, "unit_state", lambda n: self.unit_states.get(n, ("", ""))),
+             mock.patch.object(helper, "systemctl", self._systemctl),
+             mock.patch.object(helper, "run", self._run),
+             mock.patch.object(helper, "start_unit", self._start),
+             mock.patch.object(helper, "set_immutable", lambda p, on: self.calls.append(("lock", on)) or True),
+             mock.patch.object(helper, "validate_mount_point", lambda p: p)]
+        for x in p:
+            x.start()
+            self.addCleanup(x.stop)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _systemctl(self, *args, check=True):
+        self.calls.append(("systemctl",) + args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    def _run(self, *args, check=True):
+        self.calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    def _start(self, unit):
+        self.calls.append(("start", unit))
+        if not self.up["start_ok"]:
+            raise helper.HelperError("Could not connect (mnt-media.mount).\n\nmount error(113)")
+
+    def state(self):
+        return helper._load_json(helper.WATCH_STATE_FILE, {})[self.ID]
+
+    def test_unreachable_then_back(self):
+        self.up["reachable"] = False
+        helper.cmd_watchdog({})
+        st = self.state()
+        self.assertEqual(st["state"], "unreachable")
+        self.assertIn(("lock", True), self.calls)                 # folder locked
+        self.assertNotIn(("start", self.unit), self.calls)        # no hanging mount attempt
+        self.assertAlmostEqual(st["next_try"] - st["last_try"], 300, delta=1)
+        # a minute later: not due yet, nothing tried
+        self.calls.clear()
+        self.up["reachable"] = True
+        helper.cmd_watchdog({})
+        self.assertNotIn(("start", self.unit), self.calls)
+        # after the interval: server answers, mount comes back
+        data = helper._load_json(helper.WATCH_STATE_FILE, {})
+        data[self.ID]["last_try"] -= 301
+        helper._save_json(helper.WATCH_STATE_FILE, data)
+        helper.cmd_watchdog({})
+        self.assertIn(("start", self.unit), self.calls)
+        self.assertEqual(self.state()["state"], "ok")
+
+    def test_failed_start_cleans_up(self):
+        self.up["start_ok"] = False
+        helper.cmd_watchdog({})
+        st = self.state()
+        self.assertEqual(st["state"], "retrying")
+        self.assertTrue(st["error"].startswith("Could not connect"))   # first line kept
+        self.assertIn(("systemctl", "stop", self.unit), self.calls)
+
+    def test_dead_share_is_unmounted(self):
+        self.mounted.add(self.mp)
+        self.unit_states[self.unit] = ("active", "enabled")
+        self.up["healthy"] = False
+        helper.cmd_watchdog({})
+        self.assertIn(("umount", "-l", "-f", self.mp), self.calls)
+        self.assertEqual(self.state()["state"], "retrying")
+
+    def test_disconnected_drive_left_alone(self):
+        helper.set_desired(self.ID, "disconnected")
+        helper.cmd_watchdog({})
+        self.assertEqual(self.state()["state"], "off")
+        self.assertNotIn(("start", self.unit), self.calls)
+
+    def test_retry_zero_never_retries(self):
+        helper._save_json(helper.WATCH_CONF_FILE, {"retry_minutes": 0, "on_fail": "lock",
+                                                   "recover_dead": True})
+        helper.cmd_watchdog({})
+        self.assertNotIn(("start", self.unit), self.calls)
+        self.assertEqual(self.state()["next_try"], 0)
+
+    def test_set_watchdog_validates(self):
+        with self.assertRaises(helper.HelperError):
+            helper.cmd_set_watchdog({"retry_minutes": -1, "on_fail": "lock", "recover_dead": True})
+        with self.assertRaises(helper.HelperError):
+            helper.cmd_set_watchdog({"retry_minutes": 5, "on_fail": "rm -rf", "recover_dead": True})
+
+
+class ImmutableTests(unittest.TestCase):
+    @unittest.skipUnless(os.geteuid() == 0, "needs root")
+    def test_lock_empty_folder(self):
+        d = tempfile.mkdtemp(dir="/var/tmp")
+        try:
+            with mock.patch.object(helper, "validate_mount_point", lambda p: p):
+                if not helper.set_immutable(d, True):
+                    self.skipTest("filesystem doesn't support the immutable flag")
+                with self.assertRaises(OSError):
+                    open(os.path.join(d, "x"), "w")
+                self.assertTrue(helper.set_immutable(d, False))
+                open(os.path.join(d, "x"), "w").close()
+                self.assertFalse(helper.set_immutable(d, True))     # not empty: left alone
+        finally:
+            with mock.patch.object(helper, "validate_mount_point", lambda p: p):
+                helper.set_immutable(d, False)
+            shutil.rmtree(d, ignore_errors=True)

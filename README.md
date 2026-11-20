@@ -155,6 +155,11 @@ in the tray menu and under Network in Explorer.
   shown as not responding; a loading bar and item count show progress; network drives in the
   left pane get green/amber/red connection dots; SMB drives whose server also exports the
   folder over NFS get a "faster connection available" tip.
+- **Failed or dead network drives are handled for you:** the empty folder is locked so
+  nothing writes into it by mistake, drives are retried every 5 minutes once the server
+  answers (a root timer, `caracal-watchdog.timer`, so it works without Caracal open), and
+  shares that stop responding are unmounted instead of freezing other programs. Settings in
+  Preferences → General.
 - **Light or dark Explorer independent of the desktop**, including dialogs, menus and the
   matching light/dark icon set.
 - **Everything else you'd expect:** breadcrumb address bar (type a path, `\\server\share`

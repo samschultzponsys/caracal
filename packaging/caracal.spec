@@ -1,5 +1,5 @@
 Name:           caracal
-Version:        1.7
+Version:        1.8
 Release:        1
 Summary:        Map SMB and NFS network drives as persistent systemd mounts
 License:        Apache-2.0
@@ -57,6 +57,16 @@ in root-only credential files, and never edits /etc/fstab.
 %install
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 
+%post
+# Watchdog: retries failed network drives every few minutes and unmounts dead shares.
+systemctl daemon-reload >/dev/null 2>&1 || :
+systemctl enable --now caracal-watchdog.timer >/dev/null 2>&1 || :
+
+%preun
+if [ $1 -eq 0 ]; then
+    systemctl disable --now caracal-watchdog.timer >/dev/null 2>&1 || :
+fi
+
 %posttrans
 # Caracal keeps running in the background (explorer mode, search, "Show in folder"), so a
 # running copy still has the old code loaded. Tell it to restart into the new version
@@ -70,6 +80,8 @@ pkill -USR1 -x catamount >/dev/null 2>&1 || :
 %{_bindir}/caracal
 %{_bindir}/catamount
 %{_libexecdir}/caracal/
+%{_prefix}/lib/systemd/system/caracal-watchdog.service
+%{_prefix}/lib/systemd/system/caracal-watchdog.timer
 %{_datadir}/caracal/
 %{_datadir}/polkit-1/actions/com.spazcat.Caracal.policy
 %{_datadir}/applications/com.spazcat.Caracal.desktop

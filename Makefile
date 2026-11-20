@@ -18,6 +18,8 @@ install:
 	install -D -m 0755 bin/caracal $(DESTDIR)$(PREFIX)/bin/caracal
 	ln -sf caracal $(DESTDIR)$(PREFIX)/bin/catamount
 	install -D -m 0755 helper/caracal-helper $(DESTDIR)$(PREFIX)/libexec/caracal/caracal-helper
+	install -D -m 0644 data/systemd/caracal-watchdog.service $(DESTDIR)$(PREFIX)/lib/systemd/system/caracal-watchdog.service
+	install -D -m 0644 data/systemd/caracal-watchdog.timer $(DESTDIR)$(PREFIX)/lib/systemd/system/caracal-watchdog.timer
 	install -D -m 0644 data/$(APPID).policy $(DATADIR)/polkit-1/actions/$(APPID).policy
 	install -D -m 0644 data/$(APPID).desktop $(DATADIR)/applications/$(APPID).desktop
 	install -D -m 0644 data/$(APPID).Explorer.desktop $(DATADIR)/applications/$(APPID).Explorer.desktop

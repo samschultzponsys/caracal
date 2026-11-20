@@ -6,6 +6,9 @@ if [ "$1" = "configure" ]; then
     # spec's %posttrans for details).
     pkill -USR1 -x caracal >/dev/null 2>&1 || true
     pkill -USR1 -x catamount >/dev/null 2>&1 || true
+    # Watchdog: retries failed network drives and unmounts dead shares.
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable --now caracal-watchdog.timer >/dev/null 2>&1 || true
 fi
 
 #DEBHELPER#

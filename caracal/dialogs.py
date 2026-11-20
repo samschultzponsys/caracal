@@ -34,6 +34,9 @@ DEFAULTS = {
     "default_idle_minutes": 0,
     "default_start_at_boot": True,
     "confirm_remove": True,
+    "watch_retry_minutes": 5,
+    "watch_on_fail": "lock",
+    "watch_recover_dead": True,
     "tray_enabled": True,
     "close_to_tray": True,
     "notify_failures": True,
@@ -497,6 +500,30 @@ class PreferencesDialog(QDialog):
         form.addRow(self.start_at_boot)
         form.addRow("Default idle disconnect:", self.idle)
         form.addRow(self.confirm)
+        # When a drive can't connect (the root watchdog timer does the work)
+        self.w_on_fail = _combo((("lock", "Lock the empty folder so nothing can write into it"),
+                                 ("remove", "Remove the empty folder"),
+                                 ("keep", "Leave the folder as it is")),
+                                setting(settings, "watch_on_fail"))
+        self.w_on_fail.setToolTip(
+            "When a drive fails or is disconnected, its folder (e.g. /mnt/media) stays behind "
+            "empty. Programs then see an empty share or write into it, filling your own disk. "
+            "Locking it stops that; mounting still works normally.")
+        self.w_retry = QSpinBox()
+        self.w_retry.setRange(0, 1440)
+        self.w_retry.setSuffix(" min")
+        self.w_retry.setSpecialValueText("Never")
+        self.w_retry.setValue(int(setting(settings, "watch_retry_minutes")))
+        self.w_retry.setToolTip("Retry drives that should be connected but aren't, once the "
+                                "server answers. Runs in the background even when Caracal "
+                                "isn't open. Drives you disconnected stay disconnected.")
+        self.w_dead = QCheckBox("Unmount shares that stop responding, then retry")
+        self.w_dead.setChecked(bool(setting(settings, "watch_recover_dead")))
+        self.w_dead.setToolTip("A share whose server went away can freeze every program that "
+                               "touches it. Caracal checks connected shares every minute.")
+        form.addRow("If a drive can't connect:", self.w_on_fail)
+        form.addRow("Retry failed drives every:", self.w_retry)
+        form.addRow(self.w_dead)
         self.auto_updates = QCheckBox("Check for updates automatically (once a day)")
         self.auto_updates.setChecked(setting(settings, "auto_check_updates"))
         form.addRow(self.auto_updates)
@@ -901,6 +928,9 @@ class PreferencesDialog(QDialog):
         s = self.settings
         s.setValue("theme", self.theme.currentData())
         s.setValue("mount_root", "/" + root.strip("/"))
+        s.setValue("watch_on_fail", self.w_on_fail.currentData())
+        s.setValue("watch_retry_minutes", self.w_retry.value())
+        s.setValue("watch_recover_dead", self.w_dead.isChecked())
         s.setValue("refresh_seconds", self.refresh.value())
         s.setValue("default_automount", self.automount.isChecked())
         s.setValue("default_start_at_boot", self.start_at_boot.isChecked())

@@ -2,6 +2,27 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v1.8: watchdog for failed / dead mounts
+
+Sam: "when a mount fails to connect the path is left behind and other software gets upset …
+when it fails unmount, and then retry every 5 minute? open to ideas".
+- Helper: cleanup_failed(names, mp, on_fail) stops automount trap + mount, `umount -l -f`
+  if still mounted, reset-failed, then on_fail: lock (FS_IMMUTABLE_FL via FS_IOC_SETFLAGS on
+  an empty unmounted folder; set_immutable() validates the path, O_NOFOLLOW), remove (rmdir if
+  empty) or keep. Called on failed connect/apply, by the watchdog, and lock on disconnect.
+  Remove/apply-with-new-folder unlock the old folder (apply gets old_mount_point).
+- Desired state: /var/lib/caracal/desired.json (id -> connected/disconnected), set by
+  connect/apply(connect)/disconnect/remove. Without an entry, enabled units count as wanted.
+- `caracal-helper watchdog` (root, data/systemd/caracal-watchdog.{service,timer}, every 1 min,
+  enabled in RPM %post / deb postinst, disabled on uninstall): per drive — mounted: statfs in a
+  child with 10 s timeout, unhealthy → cleanup + retrying; automount trap idle → ready;
+  otherwise retry when now-last_try >= retry_minutes, only if TCP 445/2049 answers.
+  Writes /var/lib/caracal/watchdog.json (state, error, last_try, next_try) for the app's
+  tooltip (navpane.watchdog_state()). Config /etc/caracal/watchdog.json via "set-watchdog"
+  (Preferences → General; mirrored in QSettings watch_*; sent only when changed).
+- SFTP/FTP/WebDAV user services already Restart=on-failure (15 s); unchanged.
+- Tests: WatchdogTests mock systemctl/network; ImmutableTests really sets the flag (root).
+
 ## 2026-11-21 — v1.7: app icon choice
 
 Sam: option to reskin the app icon to look more like a file folder, or use the imported

@@ -844,6 +844,7 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             spec, password = dlg.request()
             self._run("apply", {"spec": spec, "password": password,
+                                "old_mount_point": d.mount_point,
                                 "connect": d.state in ("connected", "ready", "connecting")},
                       "Saving %s" % spec["name"], spec["id"])
 
@@ -1085,11 +1086,20 @@ class MainWindow(QMainWindow):
             self._run("apply", {"spec": spec, "password": password, "connect": True},
                       "Connecting %s" % spec["name"], spec["id"])
 
+    def _watch_conf(self):
+        return {"retry_minutes": int(setting(self.settings, "watch_retry_minutes")),
+                "on_fail": str(setting(self.settings, "watch_on_fail")),
+                "recover_dead": bool(setting(self.settings, "watch_recover_dead"))}
+
     def preferences(self):
         parent = self.explorers[-1] if self.explorers and not self.isVisible() else self
+        before = self._watch_conf()
         if PreferencesDialog(self.settings, parent).exec():
             self._apply_settings()
             self.apply_explorer_settings()
+            after = self._watch_conf()
+            if after != before and not self.helper.busy:
+                self._run("set-watchdog", after, "Saving drive recovery settings")
 
     def show_about(self):
         QMessageBox.about(

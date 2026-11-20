@@ -19,6 +19,24 @@ SPACER = Qt.UserRole + 3        # blank gap between sections
 LOADING = Qt.UserRole + 4       # placeholder row while subfolders load
 STATUS = Qt.UserRole + 5        # network drive dot: "up", "busy", "down"
 
+_WATCH = {"t": 0.0, "data": {}}
+
+
+def watchdog_state():
+    """What the root watchdog last found for each system drive (cached a few seconds)."""
+    import json
+    import time
+    if time.monotonic() - _WATCH["t"] > 5:
+        try:
+            with open("/var/lib/caracal/watchdog.json", encoding="utf-8") as fh:
+                data = json.load(fh)
+            _WATCH["data"] = data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            _WATCH["data"] = {}
+        _WATCH["t"] = time.monotonic()
+    return _WATCH["data"]
+
+
 LABEL_DEFAULTS = {"quick": "Quick access", "home": "Home", "thispc": "This PC",
                   "network": "Network", "trash": "Trash", "homefolder": "Home folder"}
 
@@ -147,7 +165,7 @@ class NavPane(QTreeView):
                      "%s (%s:)" % (d.name, server)) if mapped_style else d.name
             it = self._item(label, "drive-network" if up else "drive-network-offline",
                             "net:sys:" + d.id, lazy=d.mount_point if up else None)
-            self._set_status(it, d.state, d.mount_point)
+            self._set_status(it, d.state, d.mount_point, d.id)
             fast = getattr(self, "faster", {}).get(d.id)
             if fast:
                 it.setToolTip(it.toolTip() + "\nFaster connection available: this folder is also "
@@ -162,7 +180,7 @@ class NavPane(QTreeView):
             out.append(it)
         return out
 
-    def _set_status(self, it, state, mount_point):
+    def _set_status(self, it, state, mount_point, drive_id=None):
         """Green dot when mounted, amber while connecting, red when not mounted (an
         automount that hasn't been opened yet counts as not mounted)."""
         mounted = fsinfo.is_mounted(mount_point) if mount_point else False
@@ -178,6 +196,15 @@ class NavPane(QTreeView):
             ("Not responding" if mounted else STATE_LABELS.get(state, "Not connected"))
         if state == "ready" and not mounted:
             text = "Not connected (connects when you open it)"
+        watch = watchdog_state().get(drive_id or "", {})
+        if dot != "up" and watch.get("state") in ("retrying", "unreachable"):
+            import time
+            nxt = watch.get("next_try") or 0
+            mins = max(0, int(round((nxt - time.time()) / 60.0))) if nxt else None
+            text = "Not connected — %s%s" % (
+                watch.get("error") or "the last attempt failed",
+                "" if mins is None else
+                (", retrying in about %d min" % mins if mins else ", retrying now"))
         it.setToolTip("%s\n%s\n%s" % (it.text(), mount_point or "", text))
 
     def _spacer(self):

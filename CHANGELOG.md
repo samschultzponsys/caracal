@@ -2,6 +2,13 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [1.8] - 2026-11-21
+
+- **Failed drives clean up after themselves.** When an SMB/NFS drive fails to connect, Caracal now stops its automount trap (which made every program touching the path wait), unmounts anything half-mounted, and **locks the empty folder** so no program can write into it and fill your local disk thinking it's the share. Mounting on top of the locked folder works normally. Preferences → General → *If a drive can't connect* can instead remove the folder or leave it as it is.
+- **Automatic retry every 5 minutes** (Preferences → General → *Retry failed drives every*; "Never" turns it off). A small background timer (`caracal-watchdog.timer`, runs as root, works even when Caracal isn't open or at boot before the network is up) retries drives that should be connected, but only once the server answers, so a down server never causes hangs. Drives you disconnected yourself are left alone.
+- **Dead shares are unmounted.** If a connected share stops responding (server rebooted, network dropped, "stale file handle"), it's unmounted within about a minute and comes back through the retry, instead of freezing every program that touches it (*Unmount shares that stop responding* in Preferences).
+- A red dot's tooltip says what happened and when the next retry is ("Not connected — the server doesn't answer, retrying in about 3 min").
+
 ## [1.7] - 2026-11-21
 
 - **Choose Caracal's app icon** (Preferences → Appearance → *App icon*): the cat-eared network folder (default), a plain **Folder**, a **Folder with cat ears**, **From my theme** (the File Explorer icon from a theme pack you imported, or your icon theme's file manager icon), or a **Custom image**. It changes the taskbar, app menu and window icons. Caracal does this with per-user copies of its menu entries, so it works on KDE Wayland; choosing the default again removes them.

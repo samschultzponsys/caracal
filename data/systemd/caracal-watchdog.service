@@ -1,0 +1,13 @@
+[Unit]
+Description=Caracal: retry network drives that failed and unmount dead shares
+Documentation=https://github.com/samschultzponsys/caracal
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/caracal/caracal-helper watchdog
+StandardInput=null
+StandardOutput=null
+TimeoutStartSec=240
+Nice=10
+IOSchedulingClass=idle

@@ -508,6 +508,257 @@ def require_mount_helper(kind):
                       "Install the %s package." % (tool, kind.upper(), pkg))
 
 
+# --------------------------------------------------------------------------
+# failed / dead mounts: clean up the folder, retry later (the watchdog)
+# --------------------------------------------------------------------------
+
+STATE_DIR = "/var/lib/caracal"
+DESIRED_FILE = os.path.join(STATE_DIR, "desired.json")       # id -> "connected"/"disconnected"
+WATCH_STATE_FILE = os.path.join(STATE_DIR, "watchdog.json")  # read by the app (no secrets)
+WATCH_CONF_FILE = "/etc/caracal/watchdog.json"
+WATCH_DEFAULTS = {"retry_minutes": 5, "on_fail": "lock", "recover_dead": True}
+ON_FAIL = ("lock", "remove", "keep")
+FS_IOC_GETFLAGS, FS_IOC_SETFLAGS, FS_IMMUTABLE_FL = 0x80086601, 0x40086602, 0x00000010
+
+
+def _load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, type(default)) else default
+    except (OSError, ValueError):
+        return default
+
+
+def _save_json(path, data, mode=0o644):
+    os.makedirs(os.path.dirname(path), mode=0o755, exist_ok=True)
+    write_file(path, json.dumps(data, indent=1, sort_keys=True) + "\n", mode)
+
+
+def watch_conf():
+    conf = dict(WATCH_DEFAULTS)
+    raw = _load_json(WATCH_CONF_FILE, {})
+    if isinstance(raw.get("retry_minutes"), int) and 0 <= raw["retry_minutes"] <= 1440:
+        conf["retry_minutes"] = raw["retry_minutes"]
+    if raw.get("on_fail") in ON_FAIL:
+        conf["on_fail"] = raw["on_fail"]
+    if isinstance(raw.get("recover_dead"), bool):
+        conf["recover_dead"] = raw["recover_dead"]
+    return conf
+
+
+def set_desired(drive_id, state):
+    desired = _load_json(DESIRED_FILE, {})
+    if state is None:
+        desired.pop(drive_id, None)
+    else:
+        desired[drive_id] = state
+    _save_json(DESIRED_FILE, desired)
+
+
+def mounted_points():
+    """Real mounts (autofs traps excluded) from the kernel's table."""
+    out = set()
+    try:
+        with open("/proc/self/mountinfo", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                left, _, right = line.partition(" - ")
+                f, r = left.split(), right.split()
+                if len(f) >= 5 and r and r[0] != "autofs":
+                    out.add(re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), f[4]))
+    except OSError:
+        pass
+    return out
+
+
+def set_immutable(path, on):
+    """Lock/unlock an empty, unmounted mount folder: while locked nothing can create files
+    in it, so programs can't fill the local disk thinking it's the share. Mounting on top
+    of a locked folder works normally. Best effort (not every filesystem supports it)."""
+    import array
+    import fcntl
+    try:
+        validate_mount_point(path)
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except (OSError, HelperError):
+        return False
+    try:
+        if on and (path in mounted_points() or os.listdir(fd)):
+            return False
+        buf = array.array("l", [0])
+        fcntl.ioctl(fd, FS_IOC_GETFLAGS, buf, True)
+        flags = buf[0] | FS_IMMUTABLE_FL if on else buf[0] & ~FS_IMMUTABLE_FL
+        if flags != buf[0]:
+            fcntl.ioctl(fd, FS_IOC_SETFLAGS, array.array("l", [flags]))
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def cleanup_failed(names, mount_point, on_fail=None):
+    """After a failed or dead mount: no automount trap (it would make every program that
+    touches the path wait), nothing half-mounted, and the folder locked or removed."""
+    on_fail = on_fail or watch_conf()["on_fail"]
+    for unit in sorted(names, key=lambda n: 0 if n.endswith(".automount") else 1):
+        systemctl("stop", unit, check=False)
+    if mount_point in mounted_points():
+        run("umount", "-l", "-f", mount_point, check=False)
+    for unit in names:
+        systemctl("reset-failed", unit, check=False)
+    if on_fail == "lock":
+        try:
+            validate_mount_point(mount_point)
+            os.makedirs(mount_point, mode=0o755, exist_ok=True)
+        except (OSError, HelperError):
+            return
+        set_immutable(mount_point, True)
+    elif on_fail == "remove":
+        set_immutable(mount_point, False)
+        try:
+            os.rmdir(mount_point)            # only if empty
+        except OSError:
+            pass
+
+
+def healthy(mount_point, timeout=10):
+    """Does a mounted share still answer? (statfs in a child we can give up on.)"""
+    try:
+        proc = subprocess.run(["stat", "-f", "--", mount_point], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              env=SAFE_ENV, timeout=timeout)
+        return proc.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+    except OSError:
+        return True
+
+
+def reachable(spec, timeout=3):
+    import socket
+    server = spec.get("server", "").strip("[]")
+    port = 445 if spec.get("type") == "smb" else 2049
+    try:
+        with socket.create_connection((server, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def drive_specs():
+    """{drive id: (spec, [unit names])} for every managed drive, from its .mount unit."""
+    by_id = {}
+    for name, drive_id in managed_units().items():
+        by_id.setdefault(drive_id, []).append(name)
+    out = {}
+    for drive_id, names in by_id.items():
+        mount = [n for n in names if n.endswith(".mount")]
+        if not mount:
+            continue
+        try:
+            with open(os.path.join(UNIT_DIR, mount[0]), encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith(SPEC_PREFIX):
+                        out[drive_id] = (json.loads(line[len(SPEC_PREFIX):]), sorted(names))
+                        break
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def unit_state(name):
+    proc = systemctl("show", "-p", "ActiveState,UnitFileState", "--", name, check=False)
+    props = dict(l.split("=", 1) for l in proc.stdout.splitlines() if "=" in l)
+    return props.get("ActiveState", ""), props.get("UnitFileState", "")
+
+
+def cmd_watchdog(_req):
+    """Run by caracal-watchdog.timer every minute (as root): retry drives that should be
+    connected but aren't (at most every retry_minutes, and only once the server answers),
+    unmount shares that stopped responding, and keep failed drives' folders cleaned up."""
+    import time
+    conf = watch_conf()
+    desired = _load_json(DESIRED_FILE, {})
+    state = _load_json(WATCH_STATE_FILE, {})
+    now = time.time()
+    mounted = mounted_points()
+    specs = drive_specs()
+    new_state = {}
+    for drive_id, (spec, names) in specs.items():
+        mp = spec.get("mount_point", "")
+        primary = primary_unit(names)
+        mount = [n for n in names if n.endswith(".mount")][0]
+        auto = primary.endswith(".automount")
+        prev = state.get(drive_id, {})
+        st = {"state": "ok", "checked": now}
+        p_active, p_enabled = unit_state(primary)
+        want = desired.get(drive_id) or ("connected" if p_enabled == "enabled" else "")
+        if want != "connected":
+            if mp not in mounted and p_active != "active" and conf["on_fail"] == "lock":
+                set_immutable(mp, True)
+            new_state[drive_id] = {"state": "off", "checked": now}
+            continue
+        if mp in mounted:
+            if conf["recover_dead"] and not healthy(mp):
+                cleanup_failed(names, mp, conf["on_fail"])
+                st = {"state": "retrying", "error": "The share stopped responding and was "
+                      "unmounted.", "checked": now}
+            else:
+                new_state[drive_id] = st
+                continue
+        elif auto and p_active == "active" and unit_state(mount)[0] != "failed":
+            new_state[drive_id] = {"state": "ready", "checked": now}   # trap set, idle
+            continue
+        else:
+            st = {"state": "retrying", "error": prev.get("error", ""), "checked": now,
+                  "last_try": prev.get("last_try", 0)}
+            if prev.get("state") not in ("retrying", "unreachable"):
+                cleanup_failed(names, mp, conf["on_fail"])      # first time we see it failed
+            due = conf["retry_minutes"] and now - st["last_try"] >= conf["retry_minutes"] * 60 - 30
+            if due:
+                st["last_try"] = now
+                if not reachable(spec):
+                    st.update(state="unreachable", error="The server doesn't answer.")
+                else:
+                    for n in names:
+                        systemctl("reset-failed", n, check=False)
+                    try:
+                        if auto:
+                            systemctl("start", primary)
+                        start_unit(mount)
+                        st = {"state": "ok", "checked": now, "recovered": now}
+                    except HelperError as exc:
+                        st.update(state="retrying", error=str(exc).split("\n")[0][:300])
+                        cleanup_failed(names, mp, conf["on_fail"])
+        if st["state"] != "ok":
+            st["next_try"] = (st.get("last_try", now) + conf["retry_minutes"] * 60
+                              if conf["retry_minutes"] else 0)
+        new_state[drive_id] = st
+    _save_json(WATCH_STATE_FILE, new_state)
+    return {"drives": len(specs)}
+
+
+def cmd_set_watchdog(req):
+    conf = dict(WATCH_DEFAULTS)
+    minutes = req.get("retry_minutes")
+    if not isinstance(minutes, int) or not 0 <= minutes <= 1440:
+        raise HelperError("Retry interval must be 0-1440 minutes.")
+    if req.get("on_fail") not in ON_FAIL or not isinstance(req.get("recover_dead"), bool):
+        raise HelperError("Invalid request.")
+    conf.update(retry_minutes=minutes, on_fail=req["on_fail"], recover_dead=req["recover_dead"])
+    os.makedirs("/etc/caracal", mode=0o755, exist_ok=True)
+    _save_json(WATCH_CONF_FILE, conf)
+    if conf["on_fail"] != "lock":
+        # unlock folders we locked earlier so the new choice applies
+        mounted = mounted_points()
+        for spec, _names in drive_specs().values():
+            mp = spec.get("mount_point", "")
+            if mp and mp not in mounted:
+                set_immutable(mp, False)
+    return {}
+
+
 def cmd_apply(req):
     spec = validate_spec(req.get("spec"))
     if req.get("connect", True):
@@ -582,20 +833,62 @@ def cmd_apply(req):
     else:
         systemctl("disable", primary, check=False)
 
+    # A changed local folder: unlock and tidy the old one.
+    if req.get("old_mount_point") and req["old_mount_point"] != mp:
+        old = req["old_mount_point"]
+        if isinstance(old, str) and set_immutable(old, False):
+            try:
+                os.rmdir(old)
+            except OSError:
+                pass
+
     if connect:
-        if spec["automount"]:
-            systemctl("start", primary)
-        # Mount right away so bad credentials or an unreachable server show up now.
-        start_unit(base + ".mount")
+        set_desired(drive_id, "connected")
+        try:
+            if spec["automount"]:
+                systemctl("start", primary)
+            # Mount right away so bad credentials or an unreachable server show up now.
+            start_unit(base + ".mount")
+        except HelperError:
+            cleanup_failed(list(new_units), mp)
+            raise
+    else:
+        set_desired(drive_id, None)
     return {"units": sorted(new_units)}
 
 
+def _drive_of(names):
+    for spec, n in drive_specs().values():
+        if set(n) == set(names):
+            return spec
+    return {}
+
+
 def _connect_one(names):
+    spec = _drive_of(names)
+    if spec.get("id"):
+        set_desired(spec["id"], "connected")      # the watchdog keeps retrying from now on
     primary = primary_unit(names)
-    if primary.endswith(".automount"):
-        systemctl("start", primary)
     mount = [n for n in names if n.endswith(".mount")][0]
-    start_unit(mount)
+    for n in names:
+        systemctl("reset-failed", n, check=False)
+    try:
+        if primary.endswith(".automount"):
+            systemctl("start", primary)
+        start_unit(mount)
+    except HelperError:
+        if spec.get("mount_point"):
+            cleanup_failed(names, spec["mount_point"])
+        raise
+
+
+def _disconnect_one(names):
+    stop_units(names)
+    spec = _drive_of(names)
+    if spec.get("id"):
+        set_desired(spec["id"], "disconnected")
+    if spec.get("mount_point") and watch_conf()["on_fail"] == "lock":
+        set_immutable(spec["mount_point"], True)
 
 
 def _for_each(req, action):
@@ -627,7 +920,7 @@ def cmd_connect(req):
 
 
 def cmd_disconnect(req):
-    return _for_each(req, stop_units)
+    return _for_each(req, _disconnect_one)
 
 
 def cmd_log(req):
@@ -661,6 +954,9 @@ def cmd_remove(req):
     systemctl("daemon-reload", check=False)
     for name in names:
         systemctl("reset-failed", name, check=False)
+    set_desired(drive_id, None)
+    if where:
+        set_immutable(where, False)        # never leave a locked folder behind
     if req.get("remove_folder", True) and where:
         try:
             validate_mount_point(where)
@@ -806,6 +1102,8 @@ COMMANDS = {
     "log": cmd_log,
     "install-update": cmd_install_update,
     "user-folder": cmd_user_folder,
+    "watchdog": cmd_watchdog,
+    "set-watchdog": cmd_set_watchdog,
 }
 
 

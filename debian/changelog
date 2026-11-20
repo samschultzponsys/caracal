@@ -1,3 +1,10 @@
+caracal (1.8) unstable; urgency=medium
+
+  * Failed drives no longer leave a usable empty folder behind; automatic
+    retry every 5 minutes; dead shares are unmounted. See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Sat, 21 Nov 2026 19:00:00 +0000
+
 caracal (1.7) unstable; urgency=medium
 
   * App icon option: folder, folder with cat ears, from your theme pack, or a
