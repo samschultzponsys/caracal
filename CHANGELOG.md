@@ -2,6 +2,10 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [1.9] - 2026-11-21
+
+- **Flatpak apps no longer fail to install or open because of an offline drive.** Flatpak's sandbox setup touches the folders under `/mnt`; an automount drive whose server is gone made it hang or fail with "No such device" the moment it did. The watchdog now also checks idle automount drives' servers every minute and, while one is unreachable, swaps its automount for the locked empty folder (which Flatpak handles fine). It's restored automatically when the server answers again.
+
 ## [1.8] - 2026-11-21
 
 - **Failed drives clean up after themselves.** When an SMB/NFS drive fails to connect, Caracal now stops its automount trap (which made every program touching the path wait), unmounts anything half-mounted, and **locks the empty folder** so no program can write into it and fill your local disk thinking it's the share. Mounting on top of the locked folder works normally. Preferences → General → *If a drive can't connect* can instead remove the folder or leave it as it is.

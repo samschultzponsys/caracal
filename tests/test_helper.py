@@ -370,7 +370,7 @@ class UserFolderTests(unittest.TestCase):
             shutil.rmtree(name, ignore_errors=True)
 
 
-class WatchdogTests(unittest.TestCase):
+class _WatchdogBase(unittest.TestCase):
     ID = "11111111-1111-4111-8111-111111111111"
 
     def setUp(self):
@@ -420,6 +420,7 @@ class WatchdogTests(unittest.TestCase):
     def state(self):
         return helper._load_json(helper.WATCH_STATE_FILE, {})[self.ID]
 
+class WatchdogTests(_WatchdogBase):
     def test_unreachable_then_back(self):
         self.up["reachable"] = False
         helper.cmd_watchdog({})
@@ -494,3 +495,25 @@ class ImmutableTests(unittest.TestCase):
             with mock.patch.object(helper, "validate_mount_point", lambda p: p):
                 helper.set_immutable(d, False)
             shutil.rmtree(d, ignore_errors=True)
+
+
+class IdleAutomountTests(_WatchdogBase):
+    def setUp(self):
+        super().setUp()
+        self.auto = "mnt-media.automount"
+        spec = helper.drive_specs()[self.ID][0]
+        self._p = mock.patch.object(helper, "drive_specs",
+                                    lambda: {self.ID: (spec, [self.auto, self.unit])})
+        self._p.start()
+        self.addCleanup(self._p.stop)
+        self.unit_states = {self.auto: ("active", "enabled"), self.unit: ("inactive", "")}
+
+    def test_idle_trap_removed_while_server_is_down(self):
+        helper.cmd_watchdog({})
+        self.assertEqual(self.state()["state"], "ready")          # server up: trap stays
+        self.assertNotIn(("systemctl", "stop", self.auto), self.calls)
+        self.up["reachable"] = False
+        helper.cmd_watchdog({})
+        self.assertEqual(self.state()["state"], "unreachable")
+        self.assertIn(("systemctl", "stop", self.auto), self.calls)
+        self.assertIn(("lock", True), self.calls)

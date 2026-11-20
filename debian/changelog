@@ -1,3 +1,10 @@
+caracal (1.9) unstable; urgency=medium
+
+  * Idle automount drives whose server is down no longer break Flatpak apps.
+    See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Sat, 21 Nov 2026 20:00:00 +0000
+
 caracal (1.8) unstable; urgency=medium
 
   * Failed drives no longer leave a usable empty folder behind; automatic

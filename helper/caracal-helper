@@ -708,8 +708,16 @@ def cmd_watchdog(_req):
                 new_state[drive_id] = st
                 continue
         elif auto and p_active == "active" and unit_state(mount)[0] != "failed":
-            new_state[drive_id] = {"state": "ready", "checked": now}   # trap set, idle
-            continue
+            # An idle automount trap looks fine, but if the server is gone, the first program
+            # to touch the path (a Flatpak app's sandbox setup, a file dialog, a backup tool)
+            # triggers a mount that hangs or fails with "No such device". Swap the trap for
+            # the locked folder while the server is away; the retry below brings it back.
+            if reachable(spec):
+                new_state[drive_id] = {"state": "ready", "checked": now}
+                continue
+            cleanup_failed(names, mp, conf["on_fail"])
+            st = {"state": "unreachable", "error": "The server doesn't answer.",
+                  "checked": now, "last_try": now}
         else:
             st = {"state": "retrying", "error": prev.get("error", ""), "checked": now,
                   "last_try": prev.get("last_try", 0)}

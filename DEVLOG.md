@@ -2,6 +2,16 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v1.9: idle automount traps vs Flatpak
+
+Sam: the failed-mount problem shows up as other Flatpaks being unable to install/open; he'll
+bring that repo into the session so the two work together. bwrap bind-mounts host paths
+(e.g. /mnt for apps with host access) and touches the submounts during setup; an autofs trap
+for an unreachable server hangs/ENODEVs it. Watchdog: idle trap (automount active, mount
+not failed) → reachable() each run; if not, cleanup_failed() (stop trap, lock folder) and
+state unreachable, so the normal retry path re-arms the trap later. Tests: _WatchdogBase
+shared setup; IdleAutomountTests.
+
 ## 2026-11-21 — v1.8: watchdog for failed / dead mounts
 
 Sam: "when a mount fails to connect the path is left behind and other software gets upset …
