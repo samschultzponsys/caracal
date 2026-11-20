@@ -2,6 +2,23 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v2.1: index status + browsing from the index
+
+Sam: needs to see if indexing is complete; an indexed remote mount loads fast but not as fast
+as he'd like — is the index helping? It wasn't: the index was search-only.
+- indexdb.cached_listing(conn, drive, rel) (rel "" = root, crawler's relative paths);
+  IndexManager.cached_listing(path) with a UI-thread read-only connection;
+  IndexManager.root_status(path). drive_stats() tolerates a schema-less new DB.
+- DirModel.cache_lookup (set by the window, remote paths only): reload() on a first load
+  calls _show_cached() → entries from the index (default mode/uid; atime unknown),
+  from_index=True, _refreshing=True so partial batches don't replace it; _loaded() replaces
+  with the live list, or on error keeps the cache and sets stale_error. Status bar texts.
+- Explorer: index_btn (permanent status widget) updated ≤1/s from index.changed and on
+  navigation; MainWindow.show_index_status() = IndexPage in a dialog; File menu entry;
+  status line in the Fast search index submenu. widgets.ago(): "just now".
+- Measured (scratchpad xp/idxspeed.py, 3,000 files, 2 ms/stat fake share): first paint
+  0.25 s with all items vs 0.31 s for 118 items / 9.1 s total without.
+
 ## 2026-11-21 — v2.0: stuck mounts vs Flatpak
 
 Sam: on the laptop no Flatpak app opens. Laptop not attached to the session (no Remote

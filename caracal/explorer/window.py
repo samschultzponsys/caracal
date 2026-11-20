@@ -12,6 +12,8 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 
+import shiboken6
+
 from PySide6.QtCore import (QItemSelectionModel, QModelIndex, QMimeData, QMimeDatabase, QObject, QSize,
                             Qt, QTimer, QUrl, Signal)
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QStandardItem, QStandardItemModel
@@ -227,6 +229,11 @@ class ExplorerWindow(QMainWindow):
         self.split.addWidget(self.nav)
 
         self.model = DirModel(self.settings, self)
+        # Indexed network folders open instantly from the search index while the live
+        # listing loads (local folders are fast anyway).
+        self.model.cache_lookup = lambda p: (
+            self.ctl.index.cached_listing(p)
+            if fsinfo.is_remote(p) and getattr(self.ctl, "index", None) is not None else None)
         self.model.on_drop = self.run_op
         self.model.on_rename = lambda old, new: self.undo_stack.append(
             {"kind": "rename", "old": old, "new": new})
@@ -381,6 +388,17 @@ class ExplorerWindow(QMainWindow):
         self.stuck_btn.clicked.connect(self.ctl.show_mount_check)
         self.stuck_btn.hide()
         sb.addPermanentWidget(self.stuck_btn)
+        self.index_btn = QToolButton()
+        self.index_btn.setAutoRaise(True)
+        self.index_btn.clicked.connect(self.ctl.show_index_status)
+        self.index_btn.hide()
+        sb.addPermanentWidget(self.index_btn)
+        self._index_timer = QTimer(self)           # progress fires often: refresh at most 1/s
+        self._index_timer.setSingleShot(True)
+        self._index_timer.setInterval(800)
+        self._index_timer.timeout.connect(self._update_index_status)
+        if getattr(self.ctl, "index", None) is not None:
+            self.ctl.index.changed.connect(self._index_timer.start)
         self.set_stuck_warning(getattr(self.ctl, "stuck_mounts", []))
         self.refresh_version()
         self.sb_details = self._tbtn("details-view", "Details (Ctrl+Shift+6)",
@@ -624,6 +642,42 @@ class ExplorerWindow(QMainWindow):
         if loc and not (explorer_setting(self.settings, "nav_follow", True) and self.nav.reveal(loc)):
             self.nav.select_location(loc)
 
+    def _update_index_status(self):
+        """Status-bar index indicator: running jobs anywhere, else this folder's index."""
+        idx = getattr(self.ctl, "index", None)
+        if idx is None or not shiboken6.isValid(self):
+            return
+        status = idx.status()
+        running = [(i, st) for i, st in status.items()
+                   if st.get("state", "").startswith(("Indexing", "Reading"))]
+        queued = [i for i, st in status.items() if st.get("state") == "Queued"]
+        loc = self.current_location() or ""
+        here = idx.root_status(loc) if loc.startswith("/") else None
+        if running:
+            i, st = running[0]
+            name = idx.drives[i].name if i in idx.drives else i
+            self.index_btn.setText("🔍 %s" % st["state"].replace(" entries", ""))
+            tip = "Indexing %s%s" % (name, (" (+%d more queued)" % len(queued)) if queued else "")
+        elif queued:
+            self.index_btn.setText("🔍 Index queued")
+            tip = "%d indexing job%s waiting" % (len(queued), "" if len(queued) == 1 else "s")
+        elif here:
+            done = here.get("state") == "Up to date"
+            self.index_btn.setText("🔍 Indexed" if done else "🔍 Index: %s" % here.get("state"))
+            tip = "%s is in the fast search index.\n%s files, %s folders%s\nLast updated: %s" % (
+                here.get("root"), format(here.get("files") or 0, ","),
+                format(here.get("dirs") or 0, ","),
+                (", contents of %s" % format(here.get("content_files") or 0, ","))
+                if here.get("content") else "",
+                ago(here["last_scan"]) if here.get("last_scan") else "not yet")
+            if fsinfo.is_remote(loc):
+                tip += "\nFolders here open instantly from the index, then refresh from the share."
+        else:
+            self.index_btn.hide()
+            return
+        self.index_btn.setToolTip(tip + "\n\nClick for index status.")
+        self.index_btn.show()
+
     def set_stuck_warning(self, stuck):
         if stuck:
             self.stuck_btn.setText("⚠ %d stuck network mount%s" % (len(stuck), "" if len(stuck) == 1 else "s"))
@@ -792,6 +846,8 @@ class ExplorerWindow(QMainWindow):
     def _show(self, loc):
         t = self._tab()
         t["loc"] = loc
+        if hasattr(self, "_index_timer"):
+            self._index_timer.start()
         self._end_search(clear_box=True)
         i = self.tabbar.currentIndex()
         self.tabbar.setTabText(i, location_label(loc))
@@ -1570,6 +1626,19 @@ class ExplorerWindow(QMainWindow):
             return
         busy = self.model.loading or self.model.details_left() > 0
         self._set_busy(busy)
+        if self.model.loading and self.model.from_index:
+            waited = time.monotonic() - getattr(self.model, "load_started", time.monotonic())
+            n = self.model.item_count()
+            self.status.setText("%s item%s   |   from the search index — checking the share for "
+                                "changes…%s" % (format(n, ","), "" if n == 1 else "s",
+                                                (" %d s" % waited) if waited > 3 else ""))
+            return
+        if self.model.stale_error and self.model.from_index:
+            n = self.model.item_count()
+            self.status.setText("%s item%s   |   ⚠ the share didn't answer — showing the search "
+                                "index's copy (%s)" % (format(n, ","), "" if n == 1 else "s",
+                                                      self.model.stale_error))
+            return
         if self.model.loading:
             waited = time.monotonic() - getattr(self.model, "load_started", time.monotonic())
             got = self.model.loaded_count
@@ -2069,6 +2138,16 @@ class ExplorerWindow(QMainWindow):
         covering = idx.covering(path)
         if root:
             sub = m.addMenu(t.icon("search"), "Fast search index")
+            st = idx.status().get(root, {})
+            line = st.get("state", "")
+            if line == "Up to date":
+                line = "Up to date — %s files, updated %s" % (
+                    format(st.get("files") or 0, ","),
+                    ago(st["last_scan"]) if st.get("last_scan") else "never")
+            info = sub.addAction(line or "Status unknown")
+            info.setEnabled(False)
+            sub.addAction("Index status…", self.ctl.show_index_status)
+            sub.addSeparator()
             sub.addAction("Re-index now", lambda: idx.rescan(root, full=True))
             content = idx.content_enabled(root)
             a = sub.addAction("Include file contents",

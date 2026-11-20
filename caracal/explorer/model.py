@@ -104,6 +104,9 @@ class DirModel(QAbstractItemModel):
         self.all_entries = []
         self.filters = {}           # column -> set of bucket labels to show (header filters)
         self.visible_cols = {NAME, DATE, TYPE, SIZE}
+        self.cache_lookup = None    # path -> (rows, root id) from the search index, or None
+        self.stale_error = ""       # live listing failed; the index's copy is shown
+        self.from_index = False     # showing the index's listing while the live one loads
         self._gen = 0
         self._by_path = {}
         self._meta_cache = {}       # (path, mtime) -> details dict
@@ -133,6 +136,7 @@ class DirModel(QAbstractItemModel):
             self.watcher.removePaths(self.watcher.directories())
         self.root = path
         self.error = ""
+        self.stale_error = ""
         self.filters = {}
         self.beginResetModel()
         self.entries, self.groups, self.all_entries = [], [], []
@@ -153,10 +157,36 @@ class DirModel(QAbstractItemModel):
         gen, root = self._gen, self.root
         self.loading = True
         self.load_started = time.monotonic()
+        self.from_index = False
+        if not self.all_entries and self.cache_lookup is not None:
+            self._show_cached(root)
         self._refreshing = bool(self.all_entries)
         self.loaded_count = 0
         self.progress.emit()
         threading.Thread(target=self._scan, args=(gen, root), daemon=True).start()
+
+    def _show_cached(self, root):
+        """Indexed folder: show the index's listing right away (a local database read),
+        while the live listing from the share loads and then replaces it."""
+        try:
+            hit = self.cache_lookup(root)
+        except Exception:
+            hit = None
+        if not hit or not hit[0]:
+            return
+        uid, gid = os.getuid(), os.getgid()
+        entries = []
+        for name, is_dir, size, mtime in hit[0]:
+            e = Entry(name, os.path.join(root, name), is_dir, 0 if is_dir else size, mtime,
+                      name.startswith("."), mode=0o40755 if is_dir else 0o100644,
+                      uid=uid, gid=gid)
+            e.type_name = self.type_name(e)
+            e.meta = self._meta_cache.get((e.path, e.mtime))
+            entries.append(e)
+        self.all_entries = entries
+        self._by_path = {e.path: e for e in entries}
+        self.from_index = True
+        self._rebuild()
 
     def _scan(self, gen, root):
         out = []
@@ -212,7 +242,16 @@ class DirModel(QAbstractItemModel):
     def _loaded(self, gen, root, entries, err=""):
         if gen != self._gen or root != self.root:
             return
+        if err and self.from_index and self.all_entries:
+            # the share didn't answer: keep showing the index's copy, and say so
+            self.loading = False
+            self.stale_error = err
+            self.progress.emit()
+            self.directoryLoaded.emit(root)
+            return
+        self.stale_error = ""
         self.loading = False
+        self.from_index = False
         self.loaded_count = len(entries)
         if not err and root not in self.watcher.directories() and \
                 not fsinfo.is_unresponsive(root):

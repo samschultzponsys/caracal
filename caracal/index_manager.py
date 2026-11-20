@@ -194,6 +194,37 @@ class IndexManager(QObject):
                 return drive_id
         return None
 
+    def cached_listing(self, path):
+        """(rows, root id) for a folder inside an indexed root, from the index, or None.
+        Uses a read-only connection kept open on the UI thread (a query takes ~1 ms)."""
+        path = os.path.abspath(path)
+        for drive_id in self.covering(path):
+            root = (self.drives[drive_id].mount_point or "").rstrip("/")
+            rel = "" if path == root else os.path.relpath(path, root)
+            if getattr(self, "_ro", None) is None:
+                self._ro = indexdb.connect(self.db_path, readonly=True)
+                if self._ro is None:
+                    return None
+            try:
+                rows = indexdb.cached_listing(self._ro, drive_id, rel)
+            except Exception:     # e.g. the database is being rebuilt
+                self._ro = None
+                return None
+            if rows is not None:
+                return rows, drive_id
+        return None
+
+    def root_status(self, path):
+        """Status dict of the indexed root covering path (see status()), or None."""
+        ids = self.covering(path)
+        if not ids:
+            return None
+        st = self.status().get(ids[0])
+        if st is not None:
+            st["id"] = ids[0]
+            st["root"] = self.drives[ids[0]].mount_point
+        return st
+
     def update_drives(self, drives):
         new = {d.id: d for d in drives}
         for p in self.folder_paths():

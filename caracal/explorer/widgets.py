@@ -402,8 +402,10 @@ class PreviewPane(QFrame):
 
 def ago(ts):
     mins = int((time.time() - ts) / 60)
+    if mins < 1:
+        return "just now"
     if mins < 60:
-        return "%d min ago" % max(mins, 0)
+        return "%d min ago" % mins
     if mins < 1440:
         return "%d h ago" % (mins // 60)
     return time.strftime("%Y-%m-%d", time.localtime(ts))

@@ -292,6 +292,20 @@ class MainWindow(QMainWindow):
         for w in list(self.explorers):
             w.set_stuck_warning(self.stuck_mounts)
 
+    def show_index_status(self):
+        """Fast search index status (every indexed drive/folder: state, counts, updated)."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout
+        from caracal.index_page import IndexPage
+        dlg = QDialog(self.dialog_parent())
+        dlg.setWindowTitle("Fast search index")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(IndexPage(self.index, lambda: self.open_search(), dlg))
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        dlg.resize(760, 460)
+        dlg.exec()
+
     def show_mount_check(self):
         from caracal.mountcheck_dialog import MountCheckDialog
         MountCheckDialog(self, self.dialog_parent()).exec()

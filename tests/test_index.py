@@ -170,3 +170,50 @@ class ServiceAndCliTests(unittest.TestCase):
         self.assertEqual(cli.search_window_args(["x", "--search-window", "--folder", "/mnt/a",
                                                  "tax", "2026"]), ("tax 2026", "/mnt/a"))
         self.assertIsNone(cli.search_window_args(["x"]))
+
+
+class CachedListingTests(unittest.TestCase):
+    def test_listing_from_index_and_model_uses_it(self):
+        import importlib.util
+        if importlib.util.find_spec("PySide6") is None:
+            self.skipTest("PySide6 not installed")
+        from PySide6.QtCore import QEventLoop, QSettings, QTimer
+        from PySide6.QtWidgets import QApplication
+        from caracal import crawler, indexdb
+        from caracal.explorer import model as m
+        QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "share")
+            os.makedirs(os.path.join(root, "sub"))
+            for n in ("a.txt", "b.txt"):
+                open(os.path.join(root, n), "w").close()
+            db = os.path.join(d, "i.sqlite")
+            crawler.Crawler(db, "r1", "share", root).scan(full=True)
+            conn = indexdb.connect(db, readonly=True)
+            rows = indexdb.cached_listing(conn, "r1", "")
+            self.assertEqual(sorted(r[0] for r in rows), ["a.txt", "b.txt", "sub"])
+            self.assertIsNone(indexdb.cached_listing(conn, "r1", "nope"))
+            # the model shows the cached rows at once, then the live listing replaces them
+            model = m.DirModel(QSettings(os.path.join(d, "s.ini"), QSettings.IniFormat))
+            open(os.path.join(root, "new.txt"), "w").close()      # not in the index yet
+            model.cache_lookup = lambda p: (indexdb.cached_listing(conn, "r1", ""), "r1")
+            model.setRootPath(root)
+            self.assertTrue(model.from_index)
+            self.assertEqual(model.item_count(), 3)
+            loop = QEventLoop()
+            model.directoryLoaded.connect(lambda _p: loop.quit())
+            QTimer.singleShot(3000, loop.quit)
+            loop.exec()
+            self.assertFalse(model.from_index)
+            self.assertEqual(model.item_count(), 4)
+            # live listing fails: keep the index's copy and report it
+            model2 = m.DirModel(QSettings(os.path.join(d, "s2.ini"), QSettings.IniFormat))
+            model2.cache_lookup = lambda p: (indexdb.cached_listing(conn, "r1", ""), "r1")
+            model2._scan = lambda gen, r: model2._relay.loaded.emit(gen, r, [], "Host is down")
+            model2.setRootPath(root)
+            loop = QEventLoop()
+            QTimer.singleShot(300, loop.quit)
+            loop.exec()
+            self.assertEqual(model2.item_count(), 3)
+            self.assertEqual(model2.stale_error, "Host is down")
+            conn.close()

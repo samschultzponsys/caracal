@@ -1,3 +1,10 @@
+caracal (2.1) unstable; urgency=medium
+
+  * Indexed network folders open instantly; index status in Explorer.
+    See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Sat, 21 Nov 2026 22:00:00 +0000
+
 caracal (2.0) unstable; urgency=medium
 
   * Find and fix stuck network mounts (any, not only Caracal's); Flatpak start

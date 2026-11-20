@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [2.1] - 2026-11-21
+
+- **Indexed network folders open instantly.** Until now the index only sped up search; browsing always listed the share live. Now a folder inside an indexed network drive or folder is shown straight from the index (a local database read), with "from the search index — checking the share for changes…" in the status bar while the live listing loads in the background and replaces it. In a test with a slow share, all 3,000 items appeared in 0.25 s instead of trickling in over 9 s. If the share doesn't answer, Explorer keeps showing the index's copy and says so.
+- **See whether indexing is done:** the status bar shows **🔍 Indexing… 40,123** while any index is being built, **🔍 Index queued** while waiting, and **🔍 Indexed** in a folder that's covered (hover for file count and when it was last updated). Click it — or **File → Search index status…** — for every indexed drive and folder. The right-click *Fast search index* menu shows the same status line.
+- Fixed: the index status could fail on the very first index (the database had no tables yet).
+
 ## [2.0] - 2026-11-21
 
 - **Check network mounts** (Explorer → File, or right-click the navigation pane): lists every network mount on the computer, not only Caracal's, with its health. *Disconnected* (transport endpoint is not connected), *Stale* and *Not responding* mounts are shown in red, and **Fix stuck mounts** detaches them. A **Flatpak start test** starts any installed Flatpak app's sandbox and shows the exact error if it won't open.

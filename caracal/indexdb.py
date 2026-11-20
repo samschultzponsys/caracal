@@ -108,6 +108,16 @@ def dir_entries(conn, dir_id):
         "SELECT id, name, is_dir, size, mtime FROM files WHERE dir=?", (dir_id,))}
 
 
+def cached_listing(conn, drive_id, rel):
+    """[(name, is_dir, size, mtime)] for one indexed folder, or None if it isn't indexed.
+    Explorer shows this instantly for indexed network folders, then checks the live share."""
+    row = conn.execute("SELECT id FROM dirs WHERE drive=? AND path=?", (drive_id, rel)).fetchone()
+    if row is None:
+        return None
+    return [(r[0], bool(r[1]), r[2] or 0, r[3] or 0) for r in conn.execute(
+        "SELECT name, is_dir, size, mtime FROM files WHERE dir=?", (row[0],))]
+
+
 def file_ext(name, is_dir=False):
     if is_dir or "." not in name.lstrip("."):
         return ""
@@ -194,11 +204,14 @@ def update_counts(conn, drive_id, **fields):
 def drive_stats(conn):
     if conn is None:
         return {}
+    try:
+        rows = conn.execute("SELECT id, name, mount_point, files, dirs, content_files, "
+                            "last_full, last_scan, last_error FROM drives").fetchall()
+    except sqlite3.OperationalError:     # brand-new database the indexer hasn't set up yet
+        return {}
     return {r[0]: {"name": r[1], "mount_point": r[2], "files": r[3], "dirs": r[4],
                    "content_files": r[5], "last_full": r[6], "last_scan": r[7],
-                   "last_error": r[8]}
-            for r in conn.execute("SELECT id, name, mount_point, files, dirs, content_files, "
-                                  "last_full, last_scan, last_error FROM drives")}
+                   "last_error": r[8]} for r in rows}
 
 
 # --------------------------------------------------------------------------
