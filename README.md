@@ -160,6 +160,10 @@ in the tray menu and under Network in Explorer.
   answers (a root timer, `caracal-watchdog.timer`, so it works without Caracal open), and
   shares that stop responding are unmounted instead of freezing other programs. Settings in
   Preferences → General.
+- **Stuck mounts don't break other apps:** *Check network mounts* (File menu) lists every
+  network mount and its health, fixes stuck ones, and can test-start a Flatpak app to show
+  why it won't open; Caracal warns you when a mount gets stuck, and the watchdog detaches
+  dead mounts (any network mount, optionally) on its own.
 - **Light or dark Explorer independent of the desktop**, including dialogs, menus and the
   matching light/dark icon set.
 - **Everything else you'd expect:** breadcrumb address bar (type a path, `\\server\share`

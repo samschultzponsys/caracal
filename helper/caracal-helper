@@ -516,7 +516,14 @@ STATE_DIR = "/var/lib/caracal"
 DESIRED_FILE = os.path.join(STATE_DIR, "desired.json")       # id -> "connected"/"disconnected"
 WATCH_STATE_FILE = os.path.join(STATE_DIR, "watchdog.json")  # read by the app (no secrets)
 WATCH_CONF_FILE = "/etc/caracal/watchdog.json"
-WATCH_DEFAULTS = {"retry_minutes": 5, "on_fail": "lock", "recover_dead": True}
+WATCH_DEFAULTS = {"retry_minutes": 5, "on_fail": "lock", "recover_dead": True, "sweep_all": True}
+# Network filesystems whose dead mounts the sweep may detach. Deliberately a list of network
+# types only: never the Flatpak document portal (fuse.portal), gvfs, lxcfs, snaps, AppImages.
+NETWORK_FS = {"cifs", "smb3", "smbfs", "nfs", "nfs4", "fuse.sshfs", "fuse.rclone", "davfs",
+              "fuse.davfs2", "fuse.curlftpfs", "fuse.s3fs", "fuse.smbnetfs", "fuse.gcsfuse",
+              "ceph", "glusterfs", "fuse.glusterfs"}
+HARD_ERRORS = ("transport endpoint is not connected", "stale file handle",
+               "input/output error", "host is down", "no route to host")
 ON_FAIL = ("lock", "remove", "keep")
 FS_IOC_GETFLAGS, FS_IOC_SETFLAGS, FS_IMMUTABLE_FL = 0x80086601, 0x40086602, 0x00000010
 
@@ -544,6 +551,8 @@ def watch_conf():
         conf["on_fail"] = raw["on_fail"]
     if isinstance(raw.get("recover_dead"), bool):
         conf["recover_dead"] = raw["recover_dead"]
+    if isinstance(raw.get("sweep_all"), bool):
+        conf["sweep_all"] = raw["sweep_all"]
     return conf
 
 
@@ -622,17 +631,102 @@ def cleanup_failed(names, mount_point, on_fail=None):
             pass
 
 
-def healthy(mount_point, timeout=10):
-    """Does a mounted share still answer? (statfs in a child we can give up on.)"""
+def health(mount_point, timeout=10):
+    """("ok" | "dead" | "slow", message) for a mounted share: statfs in a child process we
+    can give up on. "dead" = a hard error (disconnected FUSE endpoint, stale NFS handle, I/O
+    error), "slow" = no answer within the timeout."""
     try:
         proc = subprocess.run(["stat", "-f", "--", mount_point], stdin=subprocess.DEVNULL,
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
                               env=SAFE_ENV, timeout=timeout)
-        return proc.returncode == 0
     except subprocess.TimeoutExpired:
-        return False
+        return "slow", "doesn't respond"
     except OSError:
-        return True
+        return "ok", ""
+    if proc.returncode == 0:
+        return "ok", ""
+    err = (proc.stderr or "").strip().rsplit(": ", 1)[-1]
+    return ("dead" if err.lower() in HARD_ERRORS else "ok"), err
+
+
+def healthy(mount_point, timeout=10):
+    return health(mount_point, timeout)[0] == "ok"
+
+
+def network_mounts(path="/proc/self/mountinfo"):
+    """[(mount point, fstype, "major:minor", source)] for network filesystems."""
+    out = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                left, _, right = line.partition(" - ")
+                f, r = left.split(), right.split()
+                if len(f) >= 5 and len(r) >= 2 and r[0] in NETWORK_FS:
+                    mp = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), f[4])
+                    out.append((mp, r[0], f[2], r[1]))
+    except OSError:
+        pass
+    return out
+
+
+def detach_mount(mount_point, fstype, dev):
+    """Get a dead mount out of the way: abort a FUSE connection (its sshfs/rclone process
+    exits, so the location's service restarts and reconnects), then lazy-unmount."""
+    if fstype.startswith("fuse"):
+        minor = dev.split(":")[-1]
+        if minor.isdigit():
+            try:
+                with open("/sys/fs/fuse/connections/%s/abort" % minor, "w") as fh:
+                    fh.write("1")
+            except OSError:
+                pass
+    run("umount", "-l", "-f", "--", mount_point, check=False)
+
+
+def caracal_location_mount_points():
+    """Mount points of every user's Caracal SFTP/FTP/WebDAV locations."""
+    import glob
+    out = set()
+    for unit in glob.glob("/home/*/.config/systemd/user/caracal-*.service") + \
+            glob.glob("/root/.config/systemd/user/caracal-*.service") + \
+            glob.glob("/home/*/.config/systemd/user/catamount-*.service"):
+        try:
+            with open(unit, encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith(SPEC_PREFIX) or line.startswith("# CataMount-Spec: "):
+                        mp = json.loads(line.split(": ", 1)[1]).get("mount_point")
+                        if isinstance(mp, str):
+                            out.add(mp)
+                        break
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def sweep_dead_mounts(conf, skip, prev, now):
+    """Check network mounts (Caracal's locations, or all of them) and detach dead ones.
+    Hard errors are detached at once; a mount that only doesn't answer must fail two runs in
+    a row (so a busy NAS isn't cut off). Returns the record kept in watchdog.json."""
+    import concurrent.futures
+    ours = caracal_location_mount_points()
+    targets = [m for m in network_mounts()
+               if m[0] not in skip and (conf["sweep_all"] or m[0] in ours)]
+    strikes = {s.get("path"): s for s in prev.get("suspects", [])}
+    record = {"detached": list(prev.get("detached", []))[-20:], "suspects": []}
+    if not targets:
+        return record
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda m: (m, health(m[0])), targets))
+    for (mp, fstype, dev, source), (status, msg) in results:
+        if status == "ok":
+            continue
+        if status == "slow" and mp not in strikes:
+            record["suspects"].append({"path": mp, "since": now})
+            continue
+        detach_mount(mp, fstype, dev)
+        record["detached"].append({"path": mp, "fstype": fstype, "source": source,
+                                   "why": msg, "time": now})
+    return record
 
 
 def reachable(spec, timeout=3):
@@ -700,7 +794,11 @@ def cmd_watchdog(_req):
             new_state[drive_id] = {"state": "off", "checked": now}
             continue
         if mp in mounted:
-            if conf["recover_dead"] and not healthy(mp):
+            status = health(mp)[0] if conf["recover_dead"] else "ok"
+            if status == "slow" and not prev.get("slow_since"):
+                new_state[drive_id] = {"state": "ok", "checked": now, "slow_since": now}
+                continue
+            if status != "ok":
                 cleanup_failed(names, mp, conf["on_fail"])
                 st = {"state": "retrying", "error": "The share stopped responding and was "
                       "unmounted.", "checked": now}
@@ -743,8 +841,29 @@ def cmd_watchdog(_req):
             st["next_try"] = (st.get("last_try", now) + conf["retry_minutes"] * 60
                               if conf["retry_minutes"] else 0)
         new_state[drive_id] = st
+    if conf["recover_dead"]:
+        skip = {s[0].get("mount_point") for s in specs.values()}
+        new_state["_sweep"] = sweep_dead_mounts(conf, skip, state.get("_sweep", {}), now)
     _save_json(WATCH_STATE_FILE, new_state)
     return {"drives": len(specs)}
+
+
+def cmd_force_unmount(req):
+    """Detach the given dead network mounts (from the app's "Check network mounts").
+    Only paths that are currently mounted with a network filesystem are accepted."""
+    paths = req.get("paths")
+    if not isinstance(paths, list) or not 0 < len(paths) <= 50:
+        raise HelperError("Invalid request.")
+    current = {m[0]: m for m in network_mounts()}
+    done, skipped = [], []
+    for p in paths:
+        if not isinstance(p, str) or p not in current or p in ("/", "/home"):
+            skipped.append(str(p)[:200])
+            continue
+        mp, fstype, dev, _src = current[p]
+        detach_mount(mp, fstype, dev)
+        done.append(mp)
+    return {"detached": done, "skipped": skipped}
 
 
 def cmd_set_watchdog(req):
@@ -755,6 +874,8 @@ def cmd_set_watchdog(req):
     if req.get("on_fail") not in ON_FAIL or not isinstance(req.get("recover_dead"), bool):
         raise HelperError("Invalid request.")
     conf.update(retry_minutes=minutes, on_fail=req["on_fail"], recover_dead=req["recover_dead"])
+    if isinstance(req.get("sweep_all"), bool):
+        conf["sweep_all"] = req["sweep_all"]
     os.makedirs("/etc/caracal", mode=0o755, exist_ok=True)
     _save_json(WATCH_CONF_FILE, conf)
     if conf["on_fail"] != "lock":
@@ -1112,6 +1233,7 @@ COMMANDS = {
     "user-folder": cmd_user_folder,
     "watchdog": cmd_watchdog,
     "set-watchdog": cmd_set_watchdog,
+    "force-unmount": cmd_force_unmount,
 }
 
 

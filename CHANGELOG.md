@@ -2,6 +2,13 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [2.0] - 2026-11-21
+
+- **Check network mounts** (Explorer → File, or right-click the navigation pane): lists every network mount on the computer, not only Caracal's, with its health. *Disconnected* (transport endpoint is not connected), *Stale* and *Not responding* mounts are shown in red, and **Fix stuck mounts** detaches them. A **Flatpak start test** starts any installed Flatpak app's sandbox and shows the exact error if it won't open.
+- **Caracal warns you about stuck mounts:** it checks every 2 minutes; if one is stuck you get a notification and a red "⚠ stuck network mount" button in Explorer's status bar that opens the check.
+- **The background watchdog now sweeps all network mounts** for dead ones, not just Caracal's drives. Hard failures (disconnected FUSE connection, stale NFS handle, I/O error) are detached right away; mounts that are only slow must fail two checks in a row first, so a busy NAS isn't cut off. Never touches the Flatpak document portal, gvfs or other non-network mounts. Preferences → General → *Also other network mounts* limits it to Caracal's.
+- **SFTP / FTP / WebDAV locations clean up after themselves:** when their connection process dies, the dead mount is removed and the location reconnects, instead of leaving a "Transport endpoint is not connected" folder behind. Existing locations are updated automatically.
+
 ## [1.9] - 2026-11-21
 
 - **Flatpak apps no longer fail to install or open because of an offline drive.** Flatpak's sandbox setup touches the folders under `/mnt`; an automount drive whose server is gone made it hang or fail with "No such device" the moment it did. The watchdog now also checks idle automount drives' servers every minute and, while one is unreachable, swaps its automount for the locked empty folder (which Flatpak handles fine). It's restored automatically when the server answers again.

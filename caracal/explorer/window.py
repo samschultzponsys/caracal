@@ -375,6 +375,13 @@ class ExplorerWindow(QMainWindow):
         sb.addWidget(self.busy)
         self.status = QLabel()
         sb.addWidget(self.status, 1)
+        self.stuck_btn = QToolButton()
+        self.stuck_btn.setAutoRaise(True)
+        self.stuck_btn.setStyleSheet("color: #d93025; font-weight: bold;")
+        self.stuck_btn.clicked.connect(self.ctl.show_mount_check)
+        self.stuck_btn.hide()
+        sb.addPermanentWidget(self.stuck_btn)
+        self.set_stuck_warning(getattr(self.ctl, "stuck_mounts", []))
         self.refresh_version()
         self.sb_details = self._tbtn("details-view", "Details (Ctrl+Shift+6)",
                                      lambda: self.set_view("details"))
@@ -616,6 +623,14 @@ class ExplorerWindow(QMainWindow):
         loc = self.current_location() if hasattr(self, "tabs_state") else None
         if loc and not (explorer_setting(self.settings, "nav_follow", True) and self.nav.reveal(loc)):
             self.nav.select_location(loc)
+
+    def set_stuck_warning(self, stuck):
+        if stuck:
+            self.stuck_btn.setText("⚠ %d stuck network mount%s" % (len(stuck), "" if len(stuck) == 1 else "s"))
+            self.stuck_btn.setToolTip("These stopped answering and can stop apps (including "
+                                      "Flatpak apps) from opening:\n%s\n\nClick to check and "
+                                      "fix." % "\n".join(m["path"] for m in stuck))
+        self.stuck_btn.setVisible(bool(stuck))
 
     def update_window_icon(self):
         """Explorer windows show a folder like Windows does, unless an app icon was chosen
@@ -1155,6 +1170,7 @@ class ExplorerWindow(QMainWindow):
         m.addAction(theme.get().icon("add-location"), "Add network location…",
                     lambda: self.add_network_location())
         m.addAction(theme.get().icon("network"), "Manage network drives…", self.ctl.show_window)
+        m.addAction(theme.get().icon("refresh"), "Check network mounts…", self.ctl.show_mount_check)
         m.addAction(theme.get().icon("search"), "Instant search (all indexed drives)…",
                     lambda: self.ctl.open_search())
         if loc and fsinfo.realpath(loc) == fsinfo.realpath(TRASH):
@@ -1338,6 +1354,7 @@ class ExplorerWindow(QMainWindow):
                     lambda: self.add_network_location())
         m.addAction(t.icon("search"), "Browse the network…", self.ctl.browse_and_add)
         m.addAction(t.icon("network"), "Manage network drives…", self.ctl.show_window)
+        m.addAction(t.icon("refresh"), "Check network mounts…", self.ctl.show_mount_check)
         m.addSeparator()
         show = m.addMenu("Show in navigation pane")
         for label, key in self.nav.entries():

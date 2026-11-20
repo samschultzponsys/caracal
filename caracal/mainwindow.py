@@ -139,6 +139,18 @@ class MainWindow(QMainWindow):
         self.update_timer.start(3600 * 1000)
         QTimer.singleShot(8000, self._auto_check)
 
+        # Stuck network mounts (any, not only ours) stop Flatpak apps from opening: look for
+        # them now and then, warn in Explorer, and offer "Check network mounts".
+        self.stuck_mounts = []
+        self._stuck_notified = set()
+        self.mount_timer = QTimer(self)
+        self.mount_timer.timeout.connect(self._check_mounts)
+        self.mount_timer.start(120 * 1000)
+        QTimer.singleShot(15000, self._check_mounts)
+        # Older SFTP/FTP/WebDAV units didn't clean up dead FUSE mounts: rewrite them.
+        from caracal import user_mounts as _um
+        run_async(self, _um.upgrade_units, lambda *_a: None)
+
         if start_in_tray or search is not None:
             self._wait_for_tray(tries=15 if search is None else 1)
         else:
@@ -257,6 +269,32 @@ class MainWindow(QMainWindow):
         lit = usable > 0 or not setting(self.settings, "tray_show_status")
         self.tray.setIcon(tray_icon(setting(self.settings, "tray_icon_style"),
                                     "failed" if failed else None, lit))
+
+    def _check_mounts(self):
+        from caracal import mountcheck
+        if getattr(self, "_mount_check_running", False):
+            return
+        self._mount_check_running = True
+
+        def done(results, _err):
+            self._mount_check_running = False
+            self.set_stuck_mounts(mountcheck.stuck(results or []))
+        run_async(self, mountcheck.check, done)
+
+    def set_stuck_mounts(self, stuck):
+        self.stuck_mounts = list(stuck)
+        new = {m["path"] for m in stuck} - self._stuck_notified
+        if new:
+            self.notify("A network mount stopped answering (%s). It can stop apps — including "
+                        "Flatpak apps — from opening. Open Explorer → File → Check network "
+                        "mounts to fix it." % ", ".join(sorted(new)), warning=True, timeout=12000)
+        self._stuck_notified = {m["path"] for m in stuck}
+        for w in list(self.explorers):
+            w.set_stuck_warning(self.stuck_mounts)
+
+    def show_mount_check(self):
+        from caracal.mountcheck_dialog import MountCheckDialog
+        MountCheckDialog(self, self.dialog_parent()).exec()
 
     def notify(self, message, warning=False, timeout=6000):
         """Desktop notification through the tray, or notify-send when there is no tray."""
@@ -1089,7 +1127,8 @@ class MainWindow(QMainWindow):
     def _watch_conf(self):
         return {"retry_minutes": int(setting(self.settings, "watch_retry_minutes")),
                 "on_fail": str(setting(self.settings, "watch_on_fail")),
-                "recover_dead": bool(setting(self.settings, "watch_recover_dead"))}
+                "recover_dead": bool(setting(self.settings, "watch_recover_dead")),
+                "sweep_all": bool(setting(self.settings, "watch_sweep_all"))}
 
     def preferences(self):
         parent = self.explorers[-1] if self.explorers and not self.isVisible() else self

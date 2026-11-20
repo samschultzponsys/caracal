@@ -37,6 +37,7 @@ DEFAULTS = {
     "watch_retry_minutes": 5,
     "watch_on_fail": "lock",
     "watch_recover_dead": True,
+    "watch_sweep_all": True,
     "tray_enabled": True,
     "close_to_tray": True,
     "notify_failures": True,
@@ -524,6 +525,14 @@ class PreferencesDialog(QDialog):
         form.addRow("If a drive can't connect:", self.w_on_fail)
         form.addRow("Retry failed drives every:", self.w_retry)
         form.addRow(self.w_dead)
+        self.w_sweep = QCheckBox("Also other network mounts (not made by Caracal)")
+        self.w_sweep.setChecked(bool(setting(settings, "watch_sweep_all")))
+        self.w_sweep.setToolTip("Detach any SMB/NFS/SFTP/FTP/WebDAV mount that stopped "
+                                "answering — one dead mount can stop every Flatpak app from "
+                                "opening. Mounts that are only slow get a second chance first.")
+        self.w_dead.toggled.connect(self.w_sweep.setEnabled)
+        self.w_sweep.setEnabled(self.w_dead.isChecked())
+        form.addRow(self.w_sweep)
         self.auto_updates = QCheckBox("Check for updates automatically (once a day)")
         self.auto_updates.setChecked(setting(settings, "auto_check_updates"))
         form.addRow(self.auto_updates)
@@ -931,6 +940,7 @@ class PreferencesDialog(QDialog):
         s.setValue("watch_on_fail", self.w_on_fail.currentData())
         s.setValue("watch_retry_minutes", self.w_retry.value())
         s.setValue("watch_recover_dead", self.w_dead.isChecked())
+        s.setValue("watch_sweep_all", self.w_sweep.isChecked())
         s.setValue("refresh_seconds", self.refresh.value())
         s.setValue("default_automount", self.automount.isChecked())
         s.setValue("default_start_at_boot", self.start_at_boot.isChecked())

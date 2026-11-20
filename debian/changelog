@@ -1,3 +1,10 @@
+caracal (2.0) unstable; urgency=medium
+
+  * Find and fix stuck network mounts (any, not only Caracal's); Flatpak start
+    test; dead FUSE mounts cleaned up. See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Sat, 21 Nov 2026 21:00:00 +0000
+
 caracal (1.9) unstable; urgency=medium
 
   * Idle automount drives whose server is down no longer break Flatpak apps.

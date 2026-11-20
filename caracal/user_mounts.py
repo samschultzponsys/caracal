@@ -251,9 +251,14 @@ def render_unit(spec):
         "",
         "[Service]",
         "Type=%s" % svc_type,
+        # A connection process that died leaves a dead FUSE mount behind ("Transport endpoint
+        # is not connected"), which breaks anything that walks the folder tree — notably
+        # every Flatpak app's sandbox setup. Clear it before starting and after stopping.
+        "ExecStartPre=-%s -uz %s" % (_sd_quote(fusermount()), _sd_quote(mp)),
         "ExecStartPre=/usr/bin/mkdir -p %s" % _sd_quote(mp),
         "ExecStart=%s" % exec_start,
         "ExecStop=%s -u %s" % (_sd_quote(fusermount()), _sd_quote(mp)),
+        "ExecStopPost=-%s -uz %s" % (_sd_quote(fusermount()), _sd_quote(mp)),
         "Restart=on-failure",
         "RestartSec=15",
         "",
@@ -369,6 +374,27 @@ def refresh_states(locations):
             loc.state = "failed"
         else:
             loc.state = "disconnected"
+
+
+def upgrade_units():
+    """Rewrite location units made by older versions (no restart; takes effect the next
+    time each one starts). Returns how many changed."""
+    changed = 0
+    for loc in load_locations():
+        path = os.path.join(unit_dir(), loc.unit)
+        try:
+            spec = validate(dict(loc.spec))
+            text = render_unit(spec)
+            with open(path, encoding="utf-8") as fh:
+                if fh.read() == text:
+                    continue
+            _write_private(path, text, 0o644)
+            changed += 1
+        except (OSError, LocationError, KeyError, ValueError):
+            continue
+    if changed:
+        systemctl("daemon-reload", check=False)
+    return changed
 
 
 def save(raw, password=None, connect=True):

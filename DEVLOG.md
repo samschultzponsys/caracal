@@ -2,6 +2,29 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v2.0: stuck mounts vs Flatpak
+
+Sam: on the laptop no Flatpak app opens. Laptop not attached to the session (no Remote
+Control folders), so no direct diagnosis. Tested here with a real dead FUSE mount (rclone
+mount :memory:, then kill -9 → ENOTCONN): bwrap --bind/--ro-bind / / as root and as nobody
+did NOT fail on it, so "every app fails" may come from an explicitly exposed path (app with
+/mnt, home or host access, or an override on a share) or an automount hang. Hence the
+in-app Flatpak start test (`flatpak run --command=true <app>`) to capture the real error.
+- user_mounts.render_unit: ExecStartPre=-fusermount -uz and ExecStopPost=-fusermount -uz;
+  upgrade_units() at startup rewrites older units.
+- Helper: health() → ok/dead/slow (hard errors: ENOTCONN, ESTALE, EIO, host down/unreachable);
+  Caracal drives need two "slow" runs (slow_since) before cleanup. sweep_dead_mounts():
+  NETWORK_FS whitelist (never fuse.portal/gvfs), Caracal locations from
+  /home/*/.config/systemd/user/caracal-*.service specs, or all with sweep_all (default on);
+  detach_mount() aborts the FUSE connection (/sys/fs/fuse/connections/<minor>/abort) then
+  umount -l -f. Record in watchdog.json["_sweep"]. New command force-unmount {paths}
+  (only current network mounts; "/" refused).
+- App: caracal/mountcheck.py (no Qt) + mountcheck_dialog.py; MainWindow._check_mounts every
+  120 s (+15 s after start) → set_stuck_mounts → notify once per new path + Explorer
+  stuck_btn. Preferences: watch_sweep_all.
+- Verified for real here: mountcheck flags the dead mount; force-unmount and the watchdog
+  detach it; dialog + Explorer warning render.
+
 ## 2026-11-21 — v1.9: idle automount traps vs Flatpak
 
 Sam: the failed-mount problem shows up as other Flatpaks being unable to install/open; he'll

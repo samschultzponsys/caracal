@@ -379,6 +379,7 @@ class _WatchdogBase(unittest.TestCase):
         spec = {"id": self.ID, "name": "Media", "type": "smb", "server": "nas", "share": "media",
                 "mount_point": self.mp, "automount": False}
         self.unit = "mnt-media.mount"
+        self.net = []
         self.calls = []
         self.mounted = set()
         self.up = {"reachable": True, "start_ok": True, "healthy": True}
@@ -390,7 +391,10 @@ class _WatchdogBase(unittest.TestCase):
              mock.patch.object(helper, "drive_specs", lambda: {self.ID: (spec, [self.unit])}),
              mock.patch.object(helper, "mounted_points", lambda: set(self.mounted)),
              mock.patch.object(helper, "reachable", lambda s, timeout=3: self.up["reachable"]),
-             mock.patch.object(helper, "healthy", lambda mp, timeout=10: self.up["healthy"]),
+             mock.patch.object(helper, "health", lambda mp, timeout=10: ("ok", "") if self.up["healthy"]
+                               else ("dead", "Transport endpoint is not connected")),
+             mock.patch.object(helper, "network_mounts", lambda: list(self.net)),
+             mock.patch.object(helper, "caracal_location_mount_points", lambda: set()),
              mock.patch.object(helper, "unit_state", lambda n: self.unit_states.get(n, ("", ""))),
              mock.patch.object(helper, "systemctl", self._systemctl),
              mock.patch.object(helper, "run", self._run),
@@ -517,3 +521,48 @@ class IdleAutomountTests(_WatchdogBase):
         self.assertEqual(self.state()["state"], "unreachable")
         self.assertIn(("systemctl", "stop", self.auto), self.calls)
         self.assertIn(("lock", True), self.calls)
+
+
+class SweepTests(_WatchdogBase):
+    def test_dead_fuse_detached_slow_needs_two_strikes(self):
+        self.unit_states = {self.unit: ("inactive", "disabled")}     # drive not wanted
+        self.net = [("/home/u/Network/box", "fuse.sshfs", "0:61", "u@box:/"),
+                    ("/mnt/busy", "nfs4", "0:62", "nas:/busy")]
+        verdict = {"/home/u/Network/box": ("dead", "Transport endpoint is not connected"),
+                   "/mnt/busy": ("slow", "doesn't respond")}
+        with mock.patch.object(helper, "health", lambda mp, timeout=10: verdict.get(mp, ("ok", ""))):
+            helper.cmd_watchdog({})
+            sweep = helper._load_json(helper.WATCH_STATE_FILE, {})["_sweep"]
+            self.assertEqual([d["path"] for d in sweep["detached"]], ["/home/u/Network/box"])
+            self.assertIn(("umount", "-l", "-f", "--", "/home/u/Network/box"), self.calls)
+            self.assertEqual([s["path"] for s in sweep["suspects"]], ["/mnt/busy"])
+            helper.cmd_watchdog({})                                    # second strike
+            sweep = helper._load_json(helper.WATCH_STATE_FILE, {})["_sweep"]
+            self.assertIn("/mnt/busy", [d["path"] for d in sweep["detached"]])
+
+    def test_only_caracal_locations_when_not_sweeping_all(self):
+        helper._save_json(helper.WATCH_CONF_FILE, {"retry_minutes": 5, "on_fail": "lock",
+                                                   "recover_dead": True, "sweep_all": False})
+        self.net = [("/mnt/other", "cifs", "0:70", "//x/y")]
+        with mock.patch.object(helper, "health", lambda mp, timeout=10: ("dead", "Stale file handle")):
+            helper.cmd_watchdog({})
+        self.assertNotIn(("umount", "-l", "-f", "--", "/mnt/other"), self.calls)
+
+
+class NetworkMountParseTests(unittest.TestCase):
+    def test_only_network_filesystems(self):
+        lines = [
+            "36 1 0:32 / / rw - btrfs /dev/sda2 rw",
+            "90 36 0:61 / /home/u/Network/box rw - fuse.sshfs u@box:/ rw",
+            "91 36 0:62 / /mnt/media rw - cifs //nas/media rw",
+            "92 36 0:63 / /run/user/1000/doc rw - fuse.portal portal rw",
+            "93 36 0:64 / /run/user/1000/gvfs rw - fuse.gvfsd-fuse gvfsd-fuse rw",
+            "94 36 0:65 / /mnt/with\\040space rw - nfs4 nas:/x rw",
+        ]
+        with tempfile.NamedTemporaryFile("w", delete=False) as fh:
+            fh.write("\n".join(lines) + "\n")
+        try:
+            got = [m[0] for m in helper.network_mounts(fh.name)]
+        finally:
+            os.remove(fh.name)
+        self.assertEqual(got, ["/home/u/Network/box", "/mnt/media", "/mnt/with space"])
