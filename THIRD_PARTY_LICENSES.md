@@ -19,3 +19,14 @@ avahi-browse, smbclient. Their licenses do not affect Caracal's.
 
 LGPL-3.0 and Apache-2.0 are compatible for this use: Caracal does not
 modify or statically include Qt or PySide6.
+
+Optional, used if installed (not bundled):
+
+- **cryptography** (python3-cryptography) — Apache-2.0 OR BSD-3-Clause. Imported to
+  encrypt the search index (AES-256-GCM).
+- **secret-tool** (libsecret / libsecret-tools) — LGPL-2.1-or-later. Run as a separate
+  program to keep the index key in the desktop keyring.
+- **7-Zip** (7zip / p7zip) — LGPL-2.1-or-later with the unRAR restriction. Run as a
+  separate program for the 7-Zip menu.
+- **ffprobe** (ffmpeg) and **pdfinfo** (poppler-utils) — run as separate programs for
+  media and PDF detail columns.

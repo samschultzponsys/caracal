@@ -48,8 +48,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS contents USING fts5(body,
 
 
 def default_path():
-    base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-    return os.path.join(base, "caracal", "index.sqlite")
+    """Where the index is opened: in RAM when it's encrypted or memory-only (see
+    indexstore), else ~/.local/share/caracal/index.sqlite."""
+    from caracal import indexstore
+    return indexstore.active_path()
 
 
 def connect(path=None, readonly=False):

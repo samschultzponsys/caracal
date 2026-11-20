@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [2.2] - 2026-11-21
+
+- **The search index is encrypted.** It holds the names (and, if you turned it on, the contents) of every file on your indexed drives. On disk it's now only an AES-256-GCM encrypted file — random data to anyone without your login — and the key lives in your desktop keyring (KWallet / GNOME Keyring), which unlocks when you log in, so there's nothing extra to type. While you're logged in, the working copy is kept in memory (your private runtime folder, wiped at logout); Caracal saves the encrypted copy after indexing and when it quits.
+- Your existing index is encrypted automatically on upgrade, and the old unencrypted file is overwritten and deleted.
+- Preferences → Search → **Index storage**: *Encrypted* (default), *In memory only* (nothing on disk at all; rebuilt after each login), or *Not encrypted*. If the keyring can't be used, Caracal keeps the index in memory for that session rather than writing it unencrypted, and says so on the index status page.
+- If the key is ever lost (e.g. the keyring is reset), Caracal simply rebuilds the index — it's a cache of what's on your drives, so nothing is lost.
+- Needs `python3-cryptography` and `secret-tool` (Fedora: `libsecret`; Debian/Ubuntu: `libsecret-tools`), now recommended dependencies.
+
 ## [2.1] - 2026-11-21
 
 - **Indexed network folders open instantly.** Until now the index only sped up search; browsing always listed the share live. Now a folder inside an indexed network drive or folder is shown straight from the index (a local database read), with "from the search index — checking the share for changes…" in the status bar while the live listing loads in the background and replaces it. In a test with a slow share, all 3,000 items appeared in 0.25 s instead of trickling in over 9 s. If the share doesn't answer, Explorer keeps showing the index's copy and says so.

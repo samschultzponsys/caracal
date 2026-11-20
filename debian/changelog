@@ -1,3 +1,10 @@
+caracal (2.2) unstable; urgency=medium
+
+  * The search index is encrypted on disk (key in the desktop keyring).
+    See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Sat, 21 Nov 2026 23:00:00 +0000
+
 caracal (2.1) unstable; urgency=medium
 
   * Indexed network folders open instantly; index status in Explorer.

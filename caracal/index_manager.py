@@ -106,6 +106,11 @@ class IndexManager(QObject):
         self.dirty_timer = QTimer(self)
         self.dirty_timer.setSingleShot(True)
         self.dirty_timer.timeout.connect(self._flush_dirty)
+        # encrypted storage: write the encrypted snapshot a little after indexing settles
+        self.save_timer = QTimer(self)
+        self.save_timer.setSingleShot(True)
+        self.save_timer.setInterval(30 * 1000)
+        self.save_timer.timeout.connect(lambda: self.enqueue("", "save"))
 
     # -- settings ------------------------------------------------------------
 
@@ -201,6 +206,9 @@ class IndexManager(QObject):
         for drive_id in self.covering(path):
             root = (self.drives[drive_id].mount_point or "").rstrip("/")
             rel = "" if path == root else os.path.relpath(path, root)
+            if getattr(self, "_ro_stale", False) and getattr(self, "_ro", None) is not None:
+                self._ro.close()
+                self._ro, self._ro_stale = None, False
             if getattr(self, "_ro", None) is None:
                 self._ro = indexdb.connect(self.db_path, readonly=True)
                 if self._ro is None:
@@ -284,11 +292,19 @@ class IndexManager(QObject):
             elif now - (st.get("last_scan") or 0) > self.opt("index/rescan_minutes") * 60:
                 self.enqueue(drive_id, "scan")
 
+    def set_storage(self, mode):
+        """Encrypted / memory / plain; converted by the worker between other jobs."""
+        self.enqueue("", "storage:" + mode)
+
     def stop(self):
         self._stop.set()
         self.jobs.put(None)
         if self.watcher is not None:
             self.watcher.close()
+        # last encrypted snapshot (the worker is idle or finishing its current folder)
+        self.worker.join(timeout=10)
+        from caracal import indexstore
+        indexstore.save()
 
     def _work(self):
         while not self._stop.is_set():
@@ -310,6 +326,15 @@ class IndexManager(QObject):
             self.relay.finished.emit(drive_id, kind, error)
 
     def _run_job(self, drive_id, kind):
+        from caracal import indexstore
+        if kind == "save":
+            indexstore.save()
+            return
+        if kind.startswith("storage:"):
+            indexstore.switch(kind.split(":", 1)[1])
+            self.db_path = indexstore.active_path()
+            self._ro_stale = True
+            return
         if kind == "delete":
             self._cancel.discard(drive_id)
             if self.watcher is not None:
@@ -364,6 +389,8 @@ class IndexManager(QObject):
 
     def _on_finished(self, drive_id, kind, error):
         self.pending.discard((drive_id, kind))
+        if kind not in ("save",) and not kind.startswith("storage:"):
+            self.save_timer.start()
         self.current = None
         self.progress.pop(drive_id, None)
         if error and error != "stopped":

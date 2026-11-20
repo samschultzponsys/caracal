@@ -1147,7 +1147,13 @@ class MainWindow(QMainWindow):
     def preferences(self):
         parent = self.explorers[-1] if self.explorers and not self.isVisible() else self
         before = self._watch_conf()
-        if PreferencesDialog(self.settings, parent).exec():
+        from caracal import indexstore
+        storage_before = indexstore.chosen_mode()
+        dlg = PreferencesDialog(self.settings, parent)
+        if dlg.exec():
+            choice = getattr(dlg, "storage_choice", storage_before)
+            if choice != storage_before:
+                self.index.set_storage(choice)
             self._apply_settings()
             self.apply_explorer_settings()
             after = self._watch_conf()

@@ -2,6 +2,26 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v2.2: encrypted index
+
+Sam: encrypt the index so it's junk data to any observer.
+- caracal/indexstore.py: modes encrypted (default) / memory / plain in
+  ~/.config/caracal/index-storage. Working DB at $XDG_RUNTIME_DIR/caracal/index.sqlite
+  (tmpfs, 0700); snapshot ~/.local/share/caracal/index.sqlite.enc = MAGIC + 8-byte nonce
+  prefix + chunk size, then 4 MiB AES-256-GCM chunks (nonce = prefix||counter, AAD = header
+  ||counter||final flag → no truncation/reorder/splice). Key: 32 random bytes, base64 in the
+  Secret Service via `secret-tool` (attributes application=com.spazcat.Caracal,
+  purpose=search-index-key), read back after storing. prepare() (under a flock, so the KRunner
+  search service can't race it) decrypts or migrates; old plaintext is snapshotted then
+  overwritten+unlinked (_wipe; CoW/SSD caveat). No keyring/crypto → memory for the session,
+  never plaintext. Lost key → new key, undecryptable snapshot dropped → rebuild.
+- indexdb.default_path() → indexstore.active_path() (all openers go through it).
+  IndexManager: "save" job 30 s after jobs settle; save on stop(); "storage:<mode>" job
+  switches between jobs and resets the UI-thread read-only connection.
+- Preferences → Search → Index storage; status line on the index page.
+- Tests: tests/test_indexstore.py with a fake secret-tool on PATH. E2E (scratchpad enc/):
+  index → quit → new login → decrypted, cached listing works, no names in the .enc.
+
 ## 2026-11-21 — v2.1: index status + browsing from the index
 
 Sam: needs to see if indexing is complete; an indexed remote mount loads fast but not as fast

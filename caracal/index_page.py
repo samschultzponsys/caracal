@@ -121,8 +121,11 @@ class IndexPage(QWidget):
                 size += os.path.getsize(path + suffix)
             except OSError:
                 pass
-        self.info.setText("%s files indexed · index size %s" % (format(total_files, ","),
-                                                                format_size(size)))
+        from caracal import indexstore
+        extra = indexstore.note()
+        self.info.setText("%s files indexed · index size %s\n%s%s" % (
+            format(total_files, ","), format_size(size), indexstore.describe(),
+            ("\n⚠ " + extra) if extra else ""))
         self._update_buttons()
 
     def _item_changed(self, item, column):

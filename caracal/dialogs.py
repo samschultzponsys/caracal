@@ -609,9 +609,23 @@ class PreferencesDialog(QDialog):
         self.mount_ready.setChecked(setting(settings, "index/mount_ready"))
         self.skip_system = QCheckBox("Skip recycle bins, snapshots and NAS system folders")
         self.skip_system.setChecked(setting(settings, "index/skip_system"))
+        from caracal import indexstore
+        self.storage = _combo((("encrypted", "Encrypted (key in my keyring)"),
+                               ("memory", "In memory only (rebuilt after each login)"),
+                               ("plain", "Not encrypted")), indexstore.chosen_mode())
+        self.storage.setToolTip(
+            "The index holds the names (and, if enabled, the contents) of files on your "
+            "indexed drives. Encrypted: on disk it's unreadable without the key in your "
+            "desktop keyring, and the working copy stays in memory. In memory only: nothing "
+            "is written to disk at all.")
+        storage_note = QLabel(indexstore.describe() + (("\n⚠ " + indexstore.note())
+                                                       if indexstore.note() else ""))
+        storage_note.setWordWrap(True)
         iform.addRow("Check for changes every:", self.rescan)
         iform.addRow("Full refresh every:", self.full)
         iform.addRow("Read contents of files up to:", self.max_content)
+        iform.addRow("Index storage:", self.storage)
+        iform.addRow("", storage_note)
         for w in (self.watch_local, self.pause_battery, self.mount_ready, self.skip_system):
             iform.addRow(w)
         idx_box.setLayout(iform)
@@ -959,6 +973,7 @@ class PreferencesDialog(QDialog):
         s.setValue("index/pause_on_battery", self.pause_battery.isChecked())
         s.setValue("index/mount_ready", self.mount_ready.isChecked())
         s.setValue("index/skip_system", self.skip_system.isChecked())
+        self.storage_choice = self.storage.currentData()
         self._save_explorer()
         s.sync()
         try:

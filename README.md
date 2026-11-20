@@ -143,6 +143,9 @@ in the tray menu and under Network in Explorer.
 - **Navigation pane you control:** hide or show any item (right-click → Hide, or
   right-click → Show in navigation pane); map SMB/NFS drives and add SFTP/FTP/WebDAV
   locations straight from its right-click menu.
+- **Encrypted search index:** on disk it's only an AES-256-GCM encrypted file with the key in
+  your desktop keyring; the working copy stays in memory while you're logged in. Or keep it
+  in memory only, or unencrypted (Preferences → Search → Index storage).
 - **Indexed network folders open instantly** from the index while the live listing refreshes
   in the background (and stay browsable from the index if the share stops answering). The
   status bar shows indexing progress (🔍 Indexing… / 🔍 Indexed); click it for details.

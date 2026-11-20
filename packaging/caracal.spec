@@ -1,5 +1,5 @@
 Name:           caracal
-Version:        2.1
+Version:        2.2
 Release:        1
 Summary:        Map SMB and NFS network drives as persistent systemd mounts
 License:        Apache-2.0
@@ -31,6 +31,9 @@ Suggests:       nautilus-python
 Suggests:       ffmpeg-free
 # 7-Zip commands in Explorer's right-click menu (runs the 7-Zip command-line program)
 Recommends:     (7zip or p7zip-plugins)
+# Encrypted search index: AES via python3-cryptography, key in the keyring via secret-tool
+Recommends:     python3-cryptography
+Recommends:     libsecret
 # Explorer: SFTP/SCP and FTP/WebDAV locations, USB drives, default file manager
 Recommends:     fuse-sshfs
 Recommends:     rclone
