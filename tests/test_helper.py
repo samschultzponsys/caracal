@@ -16,6 +16,13 @@ spec_ = importlib.util.spec_from_loader("caracal_helper", loader)
 helper = importlib.util.module_from_spec(spec_)
 loader.exec_module(helper)
 
+# Never touch the real /var/lib/caracal or /etc/caracal from tests.
+_STATE_TMP = tempfile.mkdtemp(prefix="caracal-helper-test-")
+helper.STATE_DIR = _STATE_TMP
+helper.DESIRED_FILE = os.path.join(_STATE_TMP, "desired.json")
+helper.WATCH_STATE_FILE = os.path.join(_STATE_TMP, "watchdog.json")
+helper.WATCH_CONF_FILE = os.path.join(_STATE_TMP, "watchdog-conf.json")
+
 from caracal import model  # noqa: E402
 
 REAL_REQUIRE = helper.require_mount_helper
