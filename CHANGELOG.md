@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [2.3] - 2026-11-21
+
+- **See what the index is doing for you.** Network folders show how long they took in the status bar: "⚡ opened from index in 29 ms · share listing 6.5 s" for indexed ones, "Share listing 2.1 s (not indexed)" otherwise (Preferences → Explorer to turn off).
+- The **🔍** button in the status bar now also appears in network folders that aren't indexed ("🔍 Not indexed" — click to index the folder), and its tooltip shows averages for the last 20 folders opened ("from the index in 15 ms on average, reading the share took 2.3 s on average").
+- **Searches say where their results came from and how long they took:** "159 results in 2 ms (⚡ from the index)" vs "11 results in 41.2 s (searched the share) — index this folder for instant results". The summary no longer disappears when you select a result.
+
 ## [2.2] - 2026-11-21
 
 - **The search index is encrypted.** It holds the names (and, if you turned it on, the contents) of every file on your indexed drives. On disk it's now only an AES-256-GCM encrypted file — random data to anyone without your login — and the key lives in your desktop keyring (KWallet / GNOME Keyring), which unlocks when you log in, so there's nothing extra to type. While you're logged in, the working copy is kept in memory (your private runtime folder, wiped at logout); Caracal saves the encrypted copy after indexing and when it quits.

@@ -1,3 +1,9 @@
+caracal (2.3) unstable; urgency=medium
+
+  * See how much the index speeds up folders and searches. See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Sat, 21 Nov 2026 12:00:00 +0000
+
 caracal (2.2) unstable; urgency=medium
 
   * The search index is encrypted on disk (key in the desktop keyring).

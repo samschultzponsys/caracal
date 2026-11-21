@@ -105,6 +105,7 @@ class DirModel(QAbstractItemModel):
         self.filters = {}           # column -> set of bucket labels to show (header filters)
         self.visible_cols = {NAME, DATE, TYPE, SIZE}
         self.cache_lookup = None    # path -> (rows, root id) from the search index, or None
+        self.timing = {}            # last load: index_s (shown from index), share_s (live)
         self.stale_error = ""       # live listing failed; the index's copy is shown
         self.from_index = False     # showing the index's listing while the live one loads
         self._gen = 0
@@ -158,8 +159,11 @@ class DirModel(QAbstractItemModel):
         self.loading = True
         self.load_started = time.monotonic()
         self.from_index = False
+        self.timing = {"root": root, "index_s": None, "share_s": None, "index_root": None}
         if not self.all_entries and self.cache_lookup is not None:
             self._show_cached(root)
+            if self.from_index:
+                self.timing["index_s"] = time.monotonic() - self.load_started
         self._refreshing = bool(self.all_entries)
         self.loaded_count = 0
         self.progress.emit()
@@ -174,6 +178,7 @@ class DirModel(QAbstractItemModel):
             hit = None
         if not hit or not hit[0]:
             return
+        self.timing["index_root"] = hit[1]
         uid, gid = os.getuid(), os.getgid()
         entries = []
         for name, is_dir, size, mtime in hit[0]:
@@ -242,6 +247,9 @@ class DirModel(QAbstractItemModel):
     def _loaded(self, gen, root, entries, err=""):
         if gen != self._gen or root != self.root:
             return
+        if getattr(self, "timing", None) and self.timing.get("root") == root:
+            self.timing["share_s"] = time.monotonic() - self.load_started
+            self.timing["share_failed"] = bool(err)
         if err and self.from_index and self.all_entries:
             # the share didn't answer: keep showing the index's copy, and say so
             self.loading = False

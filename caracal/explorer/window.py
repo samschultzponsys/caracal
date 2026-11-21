@@ -390,7 +390,7 @@ class ExplorerWindow(QMainWindow):
         sb.addPermanentWidget(self.stuck_btn)
         self.index_btn = QToolButton()
         self.index_btn.setAutoRaise(True)
-        self.index_btn.clicked.connect(self.ctl.show_index_status)
+        self.index_btn.clicked.connect(self._index_clicked)
         self.index_btn.hide()
         sb.addPermanentWidget(self.index_btn)
         self._index_timer = QTimer(self)           # progress fires often: refresh at most 1/s
@@ -621,6 +621,7 @@ class ExplorerWindow(QMainWindow):
             lab.setGeometry(lab.parentWidget().rect().adjusted(0, 30, 0, 0))
 
     def _dir_loaded(self, _path):
+        self._record_timing()
         self._update_empty_message()
         pending = getattr(self, "_pending_select", None)
         if pending:
@@ -641,6 +642,66 @@ class ExplorerWindow(QMainWindow):
         loc = self.current_location() if hasattr(self, "tabs_state") else None
         if loc and not (explorer_setting(self.settings, "nav_follow", True) and self.nav.reveal(loc)):
             self.nav.select_location(loc)
+
+    # -- how fast folders open (index vs share) ---------------------------------------
+
+    def _fmt_secs(self, s):
+        return "%d ms" % max(1, round(s * 1000)) if s < 1 else "%.1f s" % s
+
+    def _record_timing(self):
+        t = dict(self.model.timing or {})
+        if t.get("root") != self.model.root or t.get("share_s") is None or \
+                not fsinfo.is_remote(t["root"]):
+            self._timing_text = ""
+            return
+        key = t.get("index_root") or self._covering_root(t["root"]) or "_unindexed"
+        stats = getattr(self.ctl, "load_stats", None)
+        if stats is None:
+            stats = self.ctl.load_stats = {}
+        stats.setdefault(key, []).append((t.get("index_s"), t["share_s"]))
+        del stats[key][:-20]
+        share = "share didn't answer after %s" % self._fmt_secs(t["share_s"]) \
+            if t.get("share_failed") else "share listing %s" % self._fmt_secs(t["share_s"])
+        if t.get("index_s") is not None:
+            self._timing_text = "⚡ opened from index in %s · %s" % (
+                self._fmt_secs(t["index_s"]), share)
+        else:
+            self._timing_text = "%s%s" % (share[0].upper(), share[1:]) + \
+                ("" if self._covering_root(t["root"]) else " (not indexed)")
+        if hasattr(self, "_index_timer"):
+            self._index_timer.start()
+
+    def _covering_root(self, path):
+        idx = getattr(self.ctl, "index", None)
+        ids = idx.covering(path) if idx is not None and path.startswith("/") else []
+        return ids[0] if ids else None
+
+    def _speed_summary(self, root_id):
+        rows = getattr(self.ctl, "load_stats", {}).get(root_id) or []
+        idx_times = [i for i, _s in rows if i is not None]
+        shares = [s for _i, s in rows]
+        if not shares:
+            return ""
+        avg = "" if len(shares) == 1 else " on average"
+        text = "\nLast folder opened here: " if len(shares) == 1 else \
+            "\nLast %d folders opened here: " % len(shares)
+        if idx_times:
+            text += "from the index in %s%s, " % (self._fmt_secs(sum(idx_times) / len(idx_times)), avg)
+        return text + "reading the share took %s%s." % (self._fmt_secs(sum(shares) / len(shares)), avg)
+
+    def _index_clicked(self):
+        loc = self.current_location() or ""
+        if loc.startswith("/") and fsinfo.is_remote(loc) and not self._covering_root(loc):
+            name = os.path.basename(loc.rstrip("/")) or loc
+            if QMessageBox.question(
+                    self, "Explorer",
+                    "Index “%s” for fast search?\n\nFolders inside it will then open "
+                    "instantly from the index (the share is still checked in the "
+                    "background), and searches there answer in milliseconds." % name) \
+                    == QMessageBox.Yes:
+                self._start_index(loc)
+            return
+        self.ctl.show_index_status()
 
     def _update_index_status(self):
         """Status-bar index indicator: running jobs anywhere, else this folder's index."""
@@ -672,6 +733,15 @@ class ExplorerWindow(QMainWindow):
                 ago(here["last_scan"]) if here.get("last_scan") else "not yet")
             if fsinfo.is_remote(loc):
                 tip += "\nFolders here open instantly from the index, then refresh from the share."
+                tip += self._speed_summary(here.get("id"))
+        elif loc.startswith("/") and fsinfo.is_remote(loc):
+            self.index_btn.setText("🔍 Not indexed")
+            tip = ("This network folder isn't in the fast search index, so it's read from the "
+                   "share every time and searches here scan the share.%s\n\nClick to index it."
+                   % self._speed_summary("_unindexed"))
+            self.index_btn.setToolTip(tip)
+            self.index_btn.show()
+            return
         else:
             self.index_btn.hide()
             return
@@ -846,6 +916,7 @@ class ExplorerWindow(QMainWindow):
     def _show(self, loc):
         t = self._tab()
         t["loc"] = loc
+        self._timing_text = ""
         if hasattr(self, "_index_timer"):
             self._index_timer.start()
         self._end_search(clear_box=True)
@@ -1618,8 +1689,8 @@ class ExplorerWindow(QMainWindow):
         if self.searching:
             n = self.results_model.rowCount()
             sel = len(self.selected_paths())
-            self.status.setText("%d result%s%s" % (n, "" if n == 1 else "s",
-                                                  ("   |   %d selected" % sel) if sel else ""))
+            base = getattr(self, "_search_summary", "") or "%d result%s" % (n, "" if n == 1 else "s")
+            self.status.setText(base + (("   |   %d selected" % sel) if sel else ""))
             return
         if not loc or loc in PSEUDO:
             self.status.setText("")
@@ -1670,6 +1741,8 @@ class ExplorerWindow(QMainWindow):
         free = self._free_space(loc)
         if free:
             text += "   |   " + free
+        if getattr(self, "_timing_text", "") and explorer_setting(self.settings, "show_load_times", True):
+            text += "   |   " + self._timing_text
         self.status.setText(text)
 
     def _set_busy(self, on):
@@ -2250,10 +2323,14 @@ class ExplorerWindow(QMainWindow):
             rows, total, ms = indexdb.search(conn, q, limit=2000, drives=indexed or None)
             conn.close()
             self._search_batch(gen, [(r.path, r.is_dir, r.mtime, r.size) for r in rows])
-            self.status.setText("%s results in %.0f ms (instant index)%s" % (
-                format(total, ",") if total is not None else "20,000+", ms,
-                "" if total is None or total <= len(rows) else " · showing %d" % len(rows)))
+            self._search_summary = "%s results in %s (⚡ from the index)%s" % (
+                format(total, ",") if total is not None else "20,000+",
+                self._fmt_secs(ms / 1000.0),
+                "" if total is None or total <= len(rows) else " · showing %d" % len(rows))
+            self.status.setText(self._search_summary)
             return
+        self._search_started = time.monotonic()
+        self._search_summary = ""
         self.status.setText("Searching %s…" % location_label(scope))
         words = [w.lower() for w in text.split()]
         root = scope or os.path.expanduser("~")
@@ -2313,8 +2390,15 @@ class ExplorerWindow(QMainWindow):
     def _search_done(self, gen, capped):
         if gen == self.search_gen:
             n = self.results_model.rowCount()
-            self.status.setText("%d result%s%s" % (n, "" if n == 1 else "s",
-                                                  " (stopped at 5,000)" if capped else ""))
+            took = time.monotonic() - getattr(self, "_search_started", time.monotonic())
+            loc = self.current_location() or ""
+            hint = " — index this folder for instant results" if (
+                fsinfo.is_remote(loc) and not self._covering_root(loc)) else ""
+            self._search_summary = "%d result%s in %s (searched %s%s)%s" % (
+                n, "" if n == 1 else "s", self._fmt_secs(took),
+                "the share" if fsinfo.is_remote(loc) else "the disk",
+                ", stopped at 5,000" if capped else "", hint)
+            self.status.setText(self._search_summary)
 
     def _end_search(self, clear_box=False):
         if not self.searching and not clear_box:

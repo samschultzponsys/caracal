@@ -2,6 +2,17 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-21 — v2.3: visible index speed
+
+Sam: updated but couldn't see anywhere how the index helps loading vs search.
+- DirModel.timing {root, index_s (time to show cached listing), share_s (live listing),
+  index_root, share_failed}. Window._record_timing() on directoryLoaded (remote folders):
+  status text "_timing_text" (explorer/show_load_times, default on) and
+  ctl.load_stats[root id | "_unindexed"] (last 20) → _speed_summary() in the 🔍 tooltip.
+- 🔍 shows "Not indexed" in uncovered remote folders; click → confirm → _start_index.
+- Search: _search_summary kept (index ms vs walk time + "searched the share/disk" + hint);
+  _update_status uses it while searching.
+
 ## 2026-11-21 — v2.2: encrypted index
 
 Sam: encrypt the index so it's junk data to any observer.

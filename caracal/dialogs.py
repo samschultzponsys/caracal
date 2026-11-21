@@ -689,6 +689,8 @@ class PreferencesDialog(QDialog):
         self.x_hidden.setChecked(sv("show_hidden", False))
         self.x_confirm = QCheckBox("Ask before moving items to the Trash")
         self.x_confirm.setChecked(sv("confirm_delete", False))
+        self.x_times = QCheckBox("Show how long network folders take to open (index vs share)")
+        self.x_times.setChecked(sv("show_load_times", True))
         self.x_counts = QCheckBox("Show item counts in group headers")
         self.x_counts.setChecked(sv("group_counts", False))
         self.x_date = QLineEdit(s.value("explorer/date_format", "M/d/yyyy h:mm AP") or "M/d/yyyy h:mm AP")
@@ -706,7 +708,7 @@ class PreferencesDialog(QDialog):
         f.addRow(self.x_tabs)
         f.addRow("Open new windows to:", self.x_start)
         f.addRow("Click items as follows:", self.x_click)
-        for w in (self.x_ext, self.x_hidden, self.x_confirm, self.x_counts):
+        for w in (self.x_ext, self.x_hidden, self.x_confirm, self.x_counts, self.x_times):
             f.addRow(w)
         f.addRow("Date format:", self.x_date)
         f.addRow("File sizes:", self.x_size)
@@ -912,6 +914,7 @@ class PreferencesDialog(QDialog):
         s.setValue("explorer/show_hidden", self.x_hidden.isChecked())
         s.setValue("explorer/confirm_delete", self.x_confirm.isChecked())
         s.setValue("explorer/group_counts", self.x_counts.isChecked())
+        s.setValue("explorer/show_load_times", self.x_times.isChecked())
         s.setValue("explorer/sevenzip_menu", self.x_7zip.currentData())
         s.setValue("explorer/date_format", self.x_date.text().strip() or "M/d/yyyy h:mm AP")
         s.setValue("explorer/size_style", self.x_size.currentData())
