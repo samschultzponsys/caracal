@@ -2,6 +2,17 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-22 — v2.4: index page crash
+
+Sam's coredump (Fedora 45, Qt 6.11.2, Python 3.15): SEGV in QTreeWidgetItem::setData from
+QStyledItemDelegate::editorEvent — checkbox click → itemChanged → set_drive →
+manager.changed → IndexPage.refresh() → tree.clear() deleted the item inside its own setData
+(use-after-free). Also the "No" branch called refresh() synchronously. Fix: _item_changed only
+reads, defers _apply_change via QTimer.singleShot(0); manager.changed → coalesced
+_refresh_timer (150 ms). Reproduced here only with MALLOC_PERTURB_=165 (old: exit 139 on the
+second click; new: fine). Rule: never clear/rebuild an item view from a signal about one of
+its items.
+
 ## 2026-11-21 — v2.3: visible index speed
 
 Sam: updated but couldn't see anywhere how the index helps loading vs search.

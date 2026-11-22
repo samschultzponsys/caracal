@@ -2,6 +2,10 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [2.4] - 2026-11-22
+
+- Fixed a crash when ticking **Names** or **Contents** in the search index window (and when answering "No" to "Stop indexing this drive?"). The list was rebuilt while Qt was still updating the row that was clicked.
+
 ## [2.3] - 2026-11-21
 
 - **See what the index is doing for you.** Network folders show how long they took in the status bar: "⚡ opened from index in 29 ms · share listing 6.5 s" for indexed ones, "Share listing 2.1 s (not indexed)" otherwise (Preferences → Explorer to turn off).

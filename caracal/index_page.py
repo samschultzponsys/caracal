@@ -5,7 +5,7 @@
 import os
 import time
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -76,7 +76,14 @@ class IndexPage(QWidget):
         for b in (self.rescan_btn, self.full_btn, self.rebuild_btn, search):
             row.addWidget(b)
         lay.addLayout(row)
-        manager.changed.connect(self.refresh)
+        # Never rebuild the list from inside a signal about one of its rows (e.g. a checkbox
+        # click): Qt is still using that row, and deleting it crashed Caracal. Rebuilds are
+        # coalesced and run from the event loop instead.
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(150)
+        self._refresh_timer.timeout.connect(self.refresh)
+        manager.changed.connect(self._refresh_timer.start)
         self.refresh()
 
     def _selected_id(self):
@@ -131,16 +138,20 @@ class IndexPage(QWidget):
     def _item_changed(self, item, column):
         if self._updating or column not in (1, 2):
             return
+        # Only read the row here; act once Qt has finished changing it (see __init__).
         drive_id = item.data(0, Qt.UserRole)
         names = item.checkState(1) == Qt.Checked
         content = item.checkState(2) == Qt.Checked
+        QTimer.singleShot(0, lambda: self._apply_change(drive_id, column, names, content))
+
+    def _apply_change(self, drive_id, column, names, content):
         if column == 2 and content and not names:
             names = True
         if column == 1 and not names and self.manager.is_enabled(drive_id):
             if QMessageBox.question(self, "Search index",
                                     "Stop indexing this drive and delete its index?") \
                     != QMessageBox.Yes:
-                self.refresh()
+                self._refresh_timer.start()
                 return
         self.manager.set_drive(drive_id, names, content)
 
