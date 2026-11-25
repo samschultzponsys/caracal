@@ -2,6 +2,13 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-25 — v2.6: search on Enter
+
+Sam: setting for search-as-you-type vs Enter; default Enter. explorer/search_as_you_type
+(default False): _search_text_changed starts the 250 ms timer only when on; empty text ends
+the search either way; Enter (_search_enter) stops the timer and runs. Placeholder adds
+"(Enter)". The separate instant-search window (index only) stays live.
+
 ## 2026-11-25 — v2.5: cloud drives, files on demand, rclone import
 
 Spec (Sam): VFS full like Windows Files On-Demand is the #1 requirement; replaces his

@@ -181,8 +181,8 @@ class ExplorerWindow(QMainWindow):
         self.search.setMinimumWidth(220)
         self.search.setMaximumWidth(320)
         self.search.addAction(theme.get().icon("search"), QLineEdit.TrailingPosition)
-        self.search.textChanged.connect(lambda _t: self.search_timer.start(250))
-        self.search.returnPressed.connect(self.run_search)
+        self.search.textChanged.connect(self._search_text_changed)
+        self.search.returnPressed.connect(self._search_enter)
         ah.addWidget(self.search)
         v.addWidget(arow)
 
@@ -935,7 +935,9 @@ class ExplorerWindow(QMainWindow):
         self.back_btn.setEnabled(t["index"] > 0)
         self.fwd_btn.setEnabled(t["index"] < len(t["history"]) - 1)
         self.up_btn.setEnabled(loc not in PSEUDO)
-        self.search.setPlaceholderText("Search %s" % location_label(loc))
+        self.search.setPlaceholderText("Search %s%s" % (
+            location_label(loc), "" if explorer_setting(self.settings, "search_as_you_type", False)
+            else " (Enter)"))
         if not (explorer_setting(self.settings, "nav_follow", True) and self.nav.reveal(loc)):
             self.nav.select_location(loc)
         if loc in PSEUDO:
@@ -2475,6 +2477,20 @@ class ExplorerWindow(QMainWindow):
     def _focus_search(self):
         self.search.setFocus()
         self.search.selectAll()
+
+    def _search_text_changed(self, text):
+        """Search as you type (Preferences → Explorer), or wait for Enter (the default).
+        Clearing the box always goes back to the folder."""
+        if not text.strip():
+            self.search_timer.stop()
+            self._end_search()
+            return
+        if explorer_setting(self.settings, "search_as_you_type", False):
+            self.search_timer.start(250)
+
+    def _search_enter(self):
+        self.search_timer.stop()
+        self.run_search()
 
     def run_search(self):
         text = self.search.text().strip()

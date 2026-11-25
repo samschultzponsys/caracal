@@ -2,6 +2,10 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [2.6] - 2026-11-25
+
+- Explorer's search box now searches when you **press Enter** (the box says "(Enter)"), so slow network folders aren't searched for every letter you type. **Preferences → Explorer → Search as I type** brings back live results. Clearing the box always returns to the folder.
+
 ## [2.5] - 2026-11-25
 
 - **Files on demand** (like Windows' Files On-Demand) for cloud drives, WebDAV and FTP: the whole folder tree is listed without downloading anything; any program that reads a file — including browser and app upload dialogs — gets the real file, downloaded on first read (no placeholder files); opened files stay cached (20 GB / 30 days by default, least recently used removed first, still listed and re-downloaded when opened); saves upload in the background. On by default for every rclone-based location (existing ones switch over the next time they connect); a per-location switch turns it off.
