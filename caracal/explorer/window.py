@@ -239,6 +239,11 @@ class ExplorerWindow(QMainWindow):
             {"kind": "rename", "old": old, "new": new})
         self.model.directoryLoaded.connect(self._dir_loaded)
         self.model.progress.connect(self._update_status)
+        self._vfs_stats = {}
+        self._vfs_timer = QTimer(self)
+        self._vfs_timer.timeout.connect(self._poll_vfs)
+        self._vfs_timer.start(15000)
+        QTimer.singleShot(3000, self._poll_vfs)
         self._free = {}               # folder -> (time, "12.3 GB free")
         self._busy_timer = QTimer(self)   # keeps "waiting for the server" text current
         self._busy_timer.setInterval(1000)
@@ -1307,7 +1312,7 @@ class ExplorerWindow(QMainWindow):
         m.addAction("Check for updates…", self.ctl.check_updates)
         m.addAction("What's new (changelog)", self.ctl.show_changelog)
         m.addSeparator()
-        m.addAction("Exit Caracal (stop background tasks)", self.ctl.quit)
+        m.addAction("Exit Caracal (stop background tasks)", self.ctl.request_exit)
 
     # ======================================================================
     # tile pages
@@ -1482,6 +1487,7 @@ class ExplorerWindow(QMainWindow):
         m.addAction(t.icon("search"), "Browse the network…", self.ctl.browse_and_add)
         m.addAction(t.icon("network"), "Manage network drives…", self.ctl.show_window)
         m.addAction(t.icon("refresh"), "Check network mounts…", self.ctl.show_mount_check)
+        m.addAction("Import rclone mounts…", self.import_rclone_mounts)
         m.addSeparator()
         show = m.addMenu("Show in navigation pane")
         for label, key in self.nav.entries():
@@ -1548,8 +1554,20 @@ class ExplorerWindow(QMainWindow):
             if l_.state != "connected":
                 m.addAction(theme.get().icon("connect"), "Connect", lambda: self._connect_user(l_))
             else:
-                m.addAction(theme.get().icon("disconnect"), "Disconnect", lambda: self._user_op(
-                    user_mounts.disconnect, l_, "Disconnecting %s" % l_.name))
+                m.addAction(theme.get().icon("disconnect"), "Disconnect",
+                            lambda: self._disconnect_user(l_))
+            if l_.kind in user_mounts.RCLONE_KINDS and l_.spec.get("vfs_full", True):
+                m.addSeparator()
+                st = self._vfs_stats.get(l_.id)
+                if st:
+                    info = m.addAction(self._vfs_text(l_, st))
+                    info.setEnabled(False)
+                m.addAction("Free up space", lambda: self._free_up_space(l_))
+                if l_.state == "connected":
+                    m.addAction("Always keep on this device",
+                                lambda: self.keep_on_device(l_.mount_point))
+            if l_.spec.get("imported_from"):
+                m.addAction("Hand back to the original rclone setup…", lambda: self._hand_back(l_))
             m.addSeparator()
             m.addAction(theme.get().icon("properties"), "Edit…", lambda: self.add_network_location(edit=l_))
             m.addAction(theme.get().icon("delete"), "Remove…", lambda: self._remove_user(l_))
@@ -1597,6 +1615,150 @@ class ExplorerWindow(QMainWindow):
             QMessageBox.warning(self, "Explorer", str(err)) if err else None,
             self._drives_changed()))
 
+    # -- files on demand (rclone locations) -------------------------------------------------
+
+    def _vfs_text(self, l_, st):
+        pending = st["uploading"] + st["queued"]
+        used = max(st["used"], st.get("disk", 0))
+        text = "On this device: %s of %d GB" % (format_size(used), l_.spec.get("cache_gb", 20))
+        if pending:
+            text += " · ⇡ %d uploading" % pending
+        if st.get("errored"):
+            text += " · ⚠ %d failed" % st["errored"]
+        return text
+
+    def _poll_vfs(self):
+        """Cache use / pending uploads of connected files-on-demand locations (every 15 s)."""
+        locs = [l for l in self.nav.locations if l.state == "connected"
+                and l.kind in user_mounts.RCLONE_KINDS and l.spec.get("vfs_full", True)]
+        if not locs or getattr(self, "_vfs_polling", False):
+            return
+        self._vfs_polling = True
+
+        def work():
+            out = {}
+            for l_ in locs:
+                st = user_mounts.cache_stats(l_.id)
+                if st is not None:
+                    st["disk"] = user_mounts.cache_size_on_disk(l_.id)
+                    out[l_.id] = st
+            return out
+
+        def done(res, _err):
+            self._vfs_polling = False
+            if not shiboken6.isValid(self):
+                return
+            self._vfs_stats = res or {}
+            self.nav.vfs_text = {i: self._vfs_text(next(l for l in locs if l.id == i), st)
+                                 for i, st in self._vfs_stats.items()}
+            self.nav.refresh_tooltips()
+        run_async(self, work, done)
+
+    def _disconnect_user(self, l_):
+        pending = user_mounts.pending_uploads(l_.id) if l_.kind in user_mounts.RCLONE_KINDS else 0
+        if pending and QMessageBox.question(
+                self, "Explorer", "%d file%s on %s %s finished uploading.\n\nDisconnect "
+                "anyway? Caracal waits up to 2 minutes for them; anything left uploads the "
+                "next time you connect." % (pending, "" if pending == 1 else "s", l_.name,
+                                            "hasn't" if pending == 1 else "haven't")) \
+                != QMessageBox.Yes:
+            return
+        self._user_op(user_mounts.disconnect, l_, "Disconnecting %s" % l_.name)
+
+    def _free_up_space(self, l_):
+        if QMessageBox.question(
+                self, "Explorer", "Remove the downloaded copies of %s's files from this computer?"
+                "\n\nEverything stays listed and downloads again when you open it. Files that "
+                "haven't finished uploading are never removed." % l_.name) != QMessageBox.Yes:
+            return
+
+        def done(_r, err):
+            if err:
+                QMessageBox.warning(self, "Explorer", str(err))
+            else:
+                self.status.setText("Freed up space on %s." % l_.name)
+            self._drives_changed()
+        self.status.setText("Freeing up space on %s…" % l_.name)
+        run_async(self, lambda: user_mounts.free_up_space(l_), done)
+
+    def _on_demand_location(self, path):
+        """The files-on-demand location a path is inside, if any."""
+        for l_ in getattr(self.nav, "locations", []):
+            mp = (l_.mount_point or "").rstrip("/")
+            if mp and l_.kind in user_mounts.RCLONE_KINDS and l_.spec.get("vfs_full", True) \
+                    and (path == mp or path.startswith(mp + "/")):
+                return l_
+        return None
+
+    def keep_on_device(self, folder):
+        """Download everything in a folder of a files-on-demand location into its cache."""
+        name = os.path.basename(folder.rstrip("/")) or folder
+        self._keep_cancel = False
+        progress = {"n": 0, "b": 0}
+
+        def work():
+            return user_mounts.keep_on_device(
+                folder, should_stop=lambda: self._keep_cancel,
+                progress=lambda n, b: progress.update(n=n, b=b))
+        timer = QTimer(self)
+        timer.timeout.connect(lambda: self.status.setText(
+            "Downloading %s to this device… %d files, %s" % (name, progress["n"],
+                                                            format_size(progress["b"]))))
+        timer.start(1000)
+
+        def done(res, err):
+            timer.stop()
+            if not shiboken6.isValid(self):
+                return
+            if err:
+                self.status.setText("Couldn't download %s: %s" % (name, err))
+            else:
+                self.status.setText("%s is on this device (%d files, %s). Files can be removed "
+                                    "again if the cache fills up." % (name, res[0], format_size(res[1])))
+        run_async(self, work, done)
+
+    def _hand_back(self, l_):
+        if QMessageBox.question(
+                self, "Explorer", "Remove %s from Caracal and start your original rclone service "
+                "(%s) again?" % (l_.name, l_.spec.get("imported_from"))) != QMessageBox.Yes:
+            return
+        self._user_op(user_mounts.hand_back, l_, "Handing %s back" % l_.name)
+
+    def import_rclone_mounts(self):
+        from caracal.explorer.dialogs import ImportRcloneDialog
+        self.status.setText("Looking for rclone mounts…")
+
+        def found(mounts, err):
+            self.status.setText("")
+            if err or not mounts:
+                QMessageBox.information(
+                    self, "Explorer", "No rclone mounts were found in your systemd user "
+                    "services (~/.config/systemd/user).%s" % ("\n\n%s" % err if err else ""))
+                return
+            dlg = ImportRcloneDialog(mounts, self)
+            if not dlg.exec():
+                return
+            chosen = dlg.chosen()
+
+            def work():
+                errors = []
+                for m, name in chosen:
+                    try:
+                        user_mounts.take_over(m, name)
+                    except user_mounts.LocationError as exc:
+                        errors.append("%s: %s" % (m["mount_point"], exc))
+                return errors
+
+            def done(errors, err):
+                self._drives_changed()
+                if err or errors:
+                    QMessageBox.warning(self, "Explorer", "\n".join(errors) or str(err))
+                else:
+                    self.status.setText("Now managed by Caracal: %s" % ", ".join(n for _m, n in chosen))
+            self.status.setText("Taking over %d mount%s…" % (len(chosen), "" if len(chosen) == 1 else "s"))
+            run_async(self, work, done)
+        run_async(self, user_mounts.find_rclone_mounts, found)
+
     def _remove_user(self, l_):
         if QMessageBox.question(self, "Explorer", "Remove “%s”? Files on the server aren't "
                                 "touched." % l_.name) == QMessageBox.Yes:
@@ -1615,12 +1777,18 @@ class ExplorerWindow(QMainWindow):
             else:
                 m = QMenu(self)
                 choice = {}
-                for k, label in (("smb", "Windows share / Samba (SMB)"), ("nfs", "NFS export"),
+                for k, label in (("cloud", "Cloud drive (Nextcloud, ownCloud, OpenCloud, FileRun)"),
+                                 ("smb", "Windows share / Samba (SMB)"), ("nfs", "NFS export"),
                                  ("sftp", "SFTP / SCP (SSH server)"), ("ftp", "FTP"),
                                  ("ftps", "FTPS (FTP over TLS)"), ("webdav", "WebDAV (Nextcloud, …)")):
                     m.addAction(label, lambda k=k: choice.setdefault("k", k))
+                m.addSeparator()
+                m.addAction("Import rclone mounts…", lambda: choice.setdefault("k", "import"))
                 m.exec(self.cursor().pos())
                 kind = choice.get("k")
+                if kind == "import":
+                    self.import_rclone_mounts()
+                    return
                 if not kind:
                     return
                 if kind in ("smb", "nfs"):
@@ -2166,6 +2334,11 @@ class ExplorerWindow(QMainWindow):
         m.addAction(t.icon("copy"), "Copy", lambda: self.copy_selection())
         if one and fsinfo.isdir(one):
             m.addAction(t.icon("paste"), "Paste into folder", lambda: self._paste_into(one))
+        od = self._on_demand_location(one) if one else None
+        if od is not None:
+            m.addAction(t.icon("downloads") if not t.icon("downloads").isNull() else t.icon("open"),
+                        "Always keep on this device", lambda: self.keep_on_device(one)
+                        if fsinfo.isdir(one) else self.keep_on_device(os.path.dirname(one)))
         m.addSeparator()
         m.addAction("Copy as path", self.copy_path)
         if one and fsinfo.isdir(one):

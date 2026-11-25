@@ -438,7 +438,7 @@ class Ribbon(QWidget):
         m.addAction("About Caracal %s" % __version__, w.ctl.show_about)
         m.addSeparator()
         m.addAction("Close", w.close)
-        m.addAction("Exit Caracal (stop background tasks)", w.ctl.quit)
+        m.addAction("Exit Caracal (stop background tasks)", w.ctl.request_exit)
 
     def _fill_dest_menu(self, m, kind):
         m.clear()

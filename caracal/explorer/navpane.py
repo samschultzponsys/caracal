@@ -177,6 +177,10 @@ class NavPane(QTreeView):
             it = self._item(label, "drive-network" if up else "drive-network-offline",
                             "net:user:" + loc.id, lazy=loc.mount_point if up else None)
             self._set_status(it, loc.state, loc.mount_point)
+            it.setData(it.toolTip(), Qt.UserRole + 20)          # base tooltip
+            vt = getattr(self, "vfs_text", {}).get(loc.id)
+            if vt:
+                it.setToolTip(it.toolTip() + "\n" + vt)
             out.append(it)
         return out
 
@@ -206,6 +210,22 @@ class NavPane(QTreeView):
                 "" if mins is None else
                 (", retrying in about %d min" % mins if mins else ", retrying now"))
         it.setToolTip("%s\n%s\n%s" % (it.text(), mount_point or "", text))
+
+    def refresh_tooltips(self):
+        """Update locations' cache/upload lines without rebuilding the pane."""
+        vfs = getattr(self, "vfs_text", {})
+
+        def walk(parent):
+            for r in range(self.model_.rowCount(parent)):
+                idx = self.model_.index(r, 0, parent)
+                loc = idx.data(LOC) or ""
+                if loc.startswith("net:user:"):
+                    it = self.model_.itemFromIndex(idx)
+                    base = it.data(Qt.UserRole + 20) or it.toolTip()
+                    extra = vfs.get(loc[9:])
+                    it.setToolTip(base + ("\n" + extra if extra else ""))
+                walk(idx)
+        walk(self.model_.index(-1, -1))
 
     def _spacer(self):
         it = QStandardItem("")

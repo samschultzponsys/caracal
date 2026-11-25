@@ -1,5 +1,5 @@
 Name:           caracal
-Version:        2.4
+Version:        2.5
 Release:        1
 Summary:        Map SMB and NFS network drives as persistent systemd mounts
 License:        Apache-2.0
@@ -37,6 +37,7 @@ Recommends:     libsecret
 # Explorer: SFTP/SCP and FTP/WebDAV locations, USB drives, default file manager
 Recommends:     fuse-sshfs
 Recommends:     rclone
+Recommends:     fuse3
 Recommends:     udisks2
 Recommends:     xdg-utils
 # Resolve .local (mDNS) server names

@@ -2,6 +2,16 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [2.5] - 2026-11-25
+
+- **Files on demand** (like Windows' Files On-Demand) for cloud drives, WebDAV and FTP: the whole folder tree is listed without downloading anything; any program that reads a file — including browser and app upload dialogs — gets the real file, downloaded on first read (no placeholder files); opened files stay cached (20 GB / 30 days by default, least recently used removed first, still listed and re-downloaded when opened); saves upload in the background. On by default for every rclone-based location (existing ones switch over the next time they connect); a per-location switch turns it off.
+- **Cloud drive** in Add network location: Nextcloud, FileRun, ownCloud (classic) and OpenCloud / oCIS. **Detect** reads the server's status.php; **Sign in with browser** (Nextcloud, FileRun) creates an app password for Caracal; ownCloud/OpenCloud use an app password / app token. A display name (e.g. "Spazcat Drive") is used in Explorer, the tray and other file managers' sidebars; the folder defaults to `~/SpazcatDrive`.
+- Right-click a location: **Free up space** (refused while uploads are pending) and **Always keep on this device**. The tooltip shows how much is on this device and pending uploads; **Disconnect** and **Exit** warn about uploads in progress; at logout/shutdown the mount waits up to 2 minutes for them.
+- **Import rclone mounts**: finds your own `rclone mount` systemd user services and takes them over (same remote, folder and cache settings; your service is disabled, not deleted). **Hand back to the original rclone setup** undoes it. Caracal mentions mounts it finds once.
+- Locations keep retrying after sleep/resume and network changes (no "start limit" give-up). A non-empty folder is refused with a clear message and never touched.
+- The dead-mount watchdog never detaches an rclone drive that's just offline (it may hold pending uploads), only one whose rclone process is gone.
+- The tray menu lists SFTP/FTP/WebDAV/cloud locations too.
+
 ## [2.4] - 2026-11-22
 
 - Fixed a crash when ticking **Names** or **Contents** in the search index window (and when answering "No" to "Stop indexing this drive?"). The list was rebuilt while Qt was still updating the row that was clicked.

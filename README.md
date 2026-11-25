@@ -88,7 +88,7 @@ install if something was removed.
 | PDF text for content search | `poppler-utils` | `poppler-utils` | recommended |
 | "Search here" in Files / Caja | `nautilus-python` | `python3-nautilus` | suggested |
 | SFTP / SCP locations | `fuse-sshfs` | `sshfs` | recommended |
-| FTP / FTPS / WebDAV locations | `rclone` | `rclone` | recommended |
+| Cloud drives, FTP / FTPS / WebDAV locations, files on demand | `rclone`, `fuse3` | `rclone`, `fuse3` | recommended |
 | USB drives in Explorer | `udisks2` | `udisks2` | recommended |
 | Default file manager switch | `xdg-utils` | `xdg-utils` | recommended |
 | Find servers on the network | `avahi-tools` | `avahi-utils` | recommended |
@@ -210,14 +210,57 @@ Preferences → Appearance → **Open theme folder**
 
 Caracal doesn't ship Microsoft's icons or fonts; you can drop in your own copies.
 
+### Cloud drives with files on demand
+
+**Add network location → Cloud drive** connects Nextcloud, FileRun, ownCloud (classic) and
+OpenCloud / ownCloud Infinite Scale. Type the server address; **Detect** reads its
+`status.php` to pick the right WebDAV address, and **Sign in with browser** (Nextcloud,
+FileRun) creates an app password for Caracal through Login Flow v2. ownCloud and OpenCloud
+use your user name and an app password / app token. Give the drive a display name (e.g.
+"Spazcat Drive"): it's used in Explorer's navigation pane, the tray and other file
+managers' sidebars, and the folder defaults to a space-free version in your home
+(`~/SpazcatDrive`).
+
+**Files on demand** (like Windows' *Files On-Demand*) is the default for every rclone-based
+location (cloud drives, WebDAV, FTP), with a per-location switch:
+
+- The whole folder tree with names, sizes and dates appears without downloading anything.
+- Any program that reads a file — an editor, `cp`, a browser's or app's upload dialog,
+  Explorer's preview — gets the **real file**: it downloads on first read. There are no
+  placeholder or stub files.
+- Opened files stay cached and reopen instantly. When the cache reaches its limit (20 GB by
+  default) the least recently used files are removed from this computer; files not opened
+  for 30 days (default) too. They stay listed and download again when opened.
+- Saving writes locally and uploads in the background (after 5 seconds).
+- The mount is a systemd user service: it starts when you sign in and keeps retrying across
+  sleep/resume and network changes. At logout/shutdown it waits up to 2 minutes for
+  uploads; anything left uploads next time.
+- Offline, files already on this computer open and others fail with an error (Explorer
+  shows the folder from the index and never freezes).
+
+Right-click the location: **Free up space** drops the downloaded copies (refused while
+uploads are pending), **Always keep on this device** downloads a folder now (files can still
+be removed later if the cache fills up). The tooltip shows how much is on this device and
+pending uploads; Disconnect and Exit warn about uploads in progress. It's
+`rclone mount --vfs-cache-mode full --vfs-cache-max-size … --vfs-cache-max-age …
+--vfs-write-back 5s --dir-cache-time 30s` with the cache in `~/.cache/caracal/rclone/<id>/`
+and rclone's remote control on a private socket (or a password-protected localhost port
+on older rclone) for the upload/cache status.
+
+**Import rclone mounts** (right-click the navigation pane, or Add network location) finds
+your own systemd user services that run `rclone mount` and takes them over: the remote's
+settings are copied into Caracal, the mount is recreated at the same folder with the same
+cache settings, and your old service is disabled (not deleted). Right-click → **Hand back
+to the original rclone setup** undoes it.
+
 ### SFTP / SCP, FTP, FTPS and WebDAV
 
 **Add network location** in Explorer also mounts SSH servers (SFTP, which also covers
 SCP-style access, via `sshfs`) and FTP / FTPS / WebDAV servers (via `rclone`). These are
-per-user mounts in `~/Network/…`, so no admin password is needed. Each is a systemd user
+per-user mounts, so no admin password is needed. Each is a systemd user
 service (`~/.config/systemd/user/caracal-<id>.service`) and can reconnect when you
-sign in. Passwords are stored in files only you can read. SSH keys and the SSH agent
-are recommended for SFTP.
+sign in. Passwords are stored in files only you can read (rclone's obscured, 0600). SSH
+keys and the SSH agent are recommended for SFTP.
 
 ## Instant search
 

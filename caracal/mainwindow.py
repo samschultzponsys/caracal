@@ -150,6 +150,7 @@ class MainWindow(QMainWindow):
         # Older SFTP/FTP/WebDAV units didn't clean up dead FUSE mounts: rewrite them.
         from caracal import user_mounts as _um
         run_async(self, _um.upgrade_units, lambda *_a: None)
+        QTimer.singleShot(20000, self._look_for_rclone_mounts)
 
         if start_in_tray or search is not None:
             self._wait_for_tray(tries=15 if search is None else 1)
@@ -228,9 +229,22 @@ class MainWindow(QMainWindow):
         m.addAction(QIcon.fromTheme("system-search"), "Search network drives…",
                     lambda: self.open_search())
         m.addSeparator()
-        if not self.drives:
+        from caracal import user_mounts as _um
+        locs = _um.load_locations()
+        _um.refresh_states(locs)
+        if not self.drives and not locs:
             a = m.addAction("No network drives")
             a.setEnabled(False)
+        for loc in locs:
+            sub = m.addMenu("%s — %s" % (loc.name, STATE_LABELS.get(loc.state, loc.state)))
+            a = sub.addAction("Open folder", lambda l=loc: self.open_explorer(l.mount_point))
+            a.setEnabled(loc.state == "connected")
+            a = sub.addAction("Connect", lambda l=loc: run_async(self, lambda: _um.connect(l),
+                                                                 lambda *_a: None))
+            a.setEnabled(loc.state != "connected")
+            a = sub.addAction("Disconnect", lambda l=loc: run_async(
+                self, lambda: _um.disconnect(l), lambda *_a: None))
+            a.setEnabled(loc.state == "connected")
         for d in self.drives:
             sub = m.addMenu("%s — %s" % (d.name, STATE_LABELS.get(d.state, d.state)))
             a = sub.addAction("Open folder", lambda d=d: self._open(d))
@@ -269,6 +283,41 @@ class MainWindow(QMainWindow):
         lit = usable > 0 or not setting(self.settings, "tray_show_status")
         self.tray.setIcon(tray_icon(setting(self.settings, "tray_icon_style"),
                                     "failed" if failed else None, lit))
+
+    def request_exit(self):
+        """File → Exit: mention uploads still in flight (they continue without Caracal)."""
+        from caracal import user_mounts as _um
+        pending = 0
+        for loc in _um.load_locations():
+            if loc.kind in _um.RCLONE_KINDS and loc.spec.get("vfs_full", True):
+                pending += _um.pending_uploads(loc.id)
+        if pending and QMessageBox.question(
+                self.dialog_parent(), APP_NAME,
+                "%d file%s still uploading to your cloud drives. They keep uploading in the "
+                "background after Caracal exits (and before shutdown, for up to 2 minutes).\n\n"
+                "Exit Caracal?" % (pending, "" if pending == 1 else "s")) \
+                != QMessageBox.Yes:
+            return
+        self.quit()
+
+    def _look_for_rclone_mounts(self):
+        """Mention (once per mount) rclone mounts set up outside Caracal that it can take over."""
+        from caracal import user_mounts as _um
+
+        def done(found, _err):
+            import json as _json
+            try:
+                seen = set(_json.loads(self.settings.value("rclone_seen", "[]") or "[]"))
+            except ValueError:
+                seen = set()
+            new = [m for m in found or [] if m["unit"] not in seen]
+            if new:
+                self.notify("Found an rclone mount Caracal can manage (%s). Right-click the left "
+                            "pane in Explorer → Import rclone mounts… to add files on demand, "
+                            "status and upload tracking."
+                            % ", ".join(m["mount_point"] for m in new), timeout=12000)
+                self.settings.setValue("rclone_seen", _json.dumps(sorted(seen | {m["unit"] for m in new})))
+        run_async(self, _um.find_rclone_mounts, done)
 
     def _check_mounts(self):
         from caracal import mountcheck
@@ -614,7 +663,8 @@ class MainWindow(QMainWindow):
         self.drives = load_drives()
         refresh_states(self.drives)
         self.index.update_drives(self.drives)
-        err = bookmarks.sync(self.drives, self.settings)
+        from caracal import user_mounts as _um
+        err = bookmarks.sync(self.drives + _um.load_locations(), self.settings)
         if err:
             self.statusBar().showMessage(err, 8000)
 

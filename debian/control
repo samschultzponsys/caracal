@@ -25,7 +25,7 @@ Conflicts: catamount (<< 0.8)
 Replaces: catamount (<< 0.8)
 Provides: catamount
 Recommends: libnss-mdns, avahi-utils, smbclient, python3-gi, poppler-utils,
-            sshfs, rclone, udisks2, xdg-utils, 7zip | p7zip-full,
+            sshfs, rclone, fuse3, udisks2, xdg-utils, 7zip | p7zip-full,
             python3-cryptography, libsecret-tools
 Suggests: gnome-shell-extension-appindicator, python3-nautilus, ffmpeg
 Description: Map SMB and NFS network drives as persistent systemd mounts

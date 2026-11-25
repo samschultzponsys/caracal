@@ -82,6 +82,14 @@ def main(argv=None):
         migrate.run()          # CataMount -> Caracal, once
     except Exception:          # never block startup on migration
         pass
+    if "--wait-uploads" in argv:
+        # ExecStop of a files-on-demand location: let background uploads finish first
+        from caracal import user_mounts
+        i = argv.index("--wait-uploads")
+        loc_id = argv[i + 1] if i + 1 < len(argv) else ""
+        if not user_mounts.ID_RE.match(loc_id):
+            return 2
+        return 0 if user_mounts.wait_for_uploads(loc_id, timeout=120) else 1
     if "--version" in argv:
         print("%s %s" % (APP_NAME, __version__))
         return 0

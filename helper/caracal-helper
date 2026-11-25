@@ -720,6 +720,10 @@ def sweep_dead_mounts(conf, skip, prev, now):
     for (mp, fstype, dev, source), (status, msg) in results:
         if status == "ok":
             continue
+        if fstype == "fuse.rclone" and "not connected" not in msg.lower():
+            # an rclone cloud drive that's offline still serves cached files and holds
+            # pending uploads: only a crashed rclone (no process behind the mount) is dead
+            continue
         if status == "slow" and mp not in strikes:
             record["suspects"].append({"path": mp, "since": now})
             continue

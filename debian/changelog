@@ -1,3 +1,10 @@
+caracal (2.5) unstable; urgency=medium
+
+  * Cloud drives (Nextcloud, FileRun, ownCloud, OpenCloud) with files on demand;
+    import existing rclone mounts. See CHANGELOG.md.
+
+ -- Spazcat Enterprises <support@spazcat.com>  Wed, 25 Nov 2026 12:00:00 +0000
+
 caracal (2.4) unstable; urgency=medium
 
   * Fix a crash when ticking Names/Contents in the search index window.

@@ -2,6 +2,39 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-25 — v2.5: cloud drives, files on demand, rclone import
+
+Spec (Sam): VFS full like Windows Files On-Demand is the #1 requirement; replaces his
+~/.config/systemd/user/rclone-filerun.service (remote "filerun", vendor nextcloud,
+~/SpazcatDrive, 20G/720h/write-back 5s/dir-cache 30s).
+- user_mounts: kinds + "cloud" (server, product, url built by cloud.webdav_url) and "rclone"
+  (imported; config section written verbatim as [loc], kept out of the spec/unit). RCLONE_KINDS
+  get vfs_full/cache_gb/cache_days (defaults 20/30) → vfs_args(); cache dir
+  ~/.cache/caracal/rclone/<id>/. WebDAV vendor per spec; cloud vendor from preset.
+- rc: rclone_supports_unix_rc() (help text of --rc-addr mentions unix) → unix socket in
+  $XDG_RUNTIME_DIR/caracal/rc-<id8>.sock + --rc-no-auth; else 127.0.0.1:<port> with
+  --rc-htpasswd ({SHA} of a random password; info in <id>.rc.json, 0600). rc_call() over
+  http.client; cache_stats() from vfs/stats (rclone 1.60 reports bytesUsed 0 → UI also sums
+  the cache dir). free_up_space (refuses on pending uploads or Dirty vfsMeta), keep_on_device
+  (reads files), wait_for_uploads (+ `caracal --wait-uploads <id>` as ExecStop, TimeoutStopSec
+  150). Unit: StartLimitIntervalSec=0, socket dir/rm stale socket. save() refuses non-empty mp.
+- cloud.py (stdlib): normalize_server, detect (status.php productname/product), PRESETS,
+  Login Flow v2 start/poll, check_login (PROPFIND). Dialog: Detect / Sign in with browser
+  (QDesktopServices + run_async polling, cancelled on close), name from domain
+  (drive.spazcat.com → "Spazcat Drive", ~/SpazcatDrive), files-on-demand group.
+- Import: find_rclone_mounts() parses ExecStart (%h/$HOME/~), --config, cache flags, reads
+  rclone.conf (skips encrypted configs); take_over() disables --now the old unit, saves,
+  restores on failure; hand_back(). Startup notice once per unit (settings rclone_seen).
+- Explorer: _poll_vfs every 15 s → nav tooltips (refresh_tooltips), location menu items,
+  "Always keep on this device" in the item menu inside on-demand locations, disconnect /
+  exit warnings. Bookmarks include locations (bookmark default on for cloud/rclone).
+- Helper sweep: fuse.rclone only detached on ENOTCONN.
+- Verified with real rclone 1.60 + `rclone serve webdav` (scratchpad vfs/): tree with 0
+  GETs, first read = real bytes (1 GET), second read 0 GETs/8 ms, save uploaded after
+  write-back, eviction with a 1 MB cache keeps the listing and re-downloads, Explorer
+  tooltip/menu/keep/disconnect warning. Not verified here: unix-socket rc (needs a newer
+  rclone than the sandbox has), systemd user units, real Nextcloud/FileRun/oCIS servers.
+
 ## 2026-11-22 — v2.4: index page crash
 
 Sam's coredump (Fedora 45, Qt 6.11.2, Python 3.15): SEGV in QTreeWidgetItem::setData from
