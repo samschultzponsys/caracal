@@ -2,6 +2,10 @@
 
 All notable user-facing changes to Caracal (called CataMount before 0.7).
 
+## [2.7] - 2026-11-25
+
+- Fixed sorting search results: **Size** sorted as text ("1.1 GB" before "10.4 MB"); it now sorts by bytes, **Date modified** by time, and **Name** case-insensitively with folders first. Results that arrive while a search is still running keep the chosen order. Sizes are right-aligned.
+
 ## [2.6] - 2026-11-25
 
 - Explorer's search box now searches when you **press Enter** (the box says "(Enter)"), so slow network folders aren't searched for every letter you type. **Preferences → Explorer → Search as I type** brings back live results. Clearing the box always returns to the folder.

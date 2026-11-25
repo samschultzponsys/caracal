@@ -2,6 +2,14 @@
 
 Working notes for the next session. Newest first.
 
+## 2026-11-25 — v2.7: search results sort
+
+Sam (screenshot): sort by size broken in search results. results_model (QStandardItemModel)
+sorted by DisplayRole text. Now setSortRole(SORT_ROLE = UserRole+1) with values per column
+(name "0"/"1"+lower for folders first, folder lower, mtime float, size int / -1 for dirs);
+_search_batch re-sorts when a sort indicator is set. Folder view (DirModel) was already
+numeric.
+
 ## 2026-11-25 — v2.6: search on Enter
 
 Sam: setting for search-as-you-type vs Enter; default Enter. explorer/search_as_you_type

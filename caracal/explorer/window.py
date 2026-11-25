@@ -331,6 +331,8 @@ class ExplorerWindow(QMainWindow):
 
         self.results_model = QStandardItemModel(self)
         self.results_model.setHorizontalHeaderLabels(["Name", "Folder", "Date modified", "Size"])
+        # sort by real values (bytes, time), not the text ("1.1 GB" < "10.4 MB" as text)
+        self.results_model.setSortRole(SORT_ROLE)
         self.results = QTreeView()
         self.results.setObjectName("FileView")
         self.results.setModel(self.results_model)
@@ -2569,11 +2571,19 @@ class ExplorerWindow(QMainWindow):
             name = QStandardItem(t.icon("folder") if is_dir else theme.file_info_icon(path),
                                  os.path.basename(path))
             name.setData(path, Qt.UserRole)
+            name.setData(("0" if is_dir else "1") + os.path.basename(path).lower(), SORT_ROLE)
             folder = QStandardItem(os.path.dirname(path))
+            folder.setData(os.path.dirname(path).lower(), SORT_ROLE)
             date = QStandardItem(time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime)))
+            date.setData(float(mtime or 0), SORT_ROLE)
             sz = QStandardItem("" if is_dir else format_size(size))
-            sz.setData(size, Qt.UserRole + 1)
+            sz.setData(-1 if is_dir else int(size or 0), SORT_ROLE)
+            sz.setData(int(Qt.AlignRight | Qt.AlignVCenter), Qt.TextAlignmentRole)
             self.results_model.appendRow([name, folder, date, sz])
+        hdr = self.results.header()
+        if hdr.isSortIndicatorShown() and rows:
+            # results still arriving: keep them in the order the user chose
+            self.results_model.sort(hdr.sortIndicatorSection(), hdr.sortIndicatorOrder())
         self._update_status()
 
     def _search_done(self, gen, capped):
@@ -2638,6 +2648,9 @@ class ExplorerWindow(QMainWindow):
         if self._drives_changed in self.ctl.drive_listeners:
             self.ctl.drive_listeners.remove(self._drives_changed)
         super().closeEvent(event)
+
+
+SORT_ROLE = Qt.UserRole + 1   # search results: value to sort by
 
 
 class _TypeAhead:
